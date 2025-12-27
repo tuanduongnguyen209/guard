@@ -7,32 +7,6 @@
     <title>WealthGuard Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase Modular SDK (v9+) via CDN -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-
-        // REPLACE WITH YOUR OWN FIREBASE CONFIG (from Firebase Console > Project Settings)
-        const firebaseConfig = {
-        apiKey: "AIzaSyCmBFrEt1lxzsikPM6c5qgJiy5hcLdmRas",
-        authDomain: "guard-d6c77.firebaseapp.com",
-        projectId: "guard-d6c77",
-        storageBucket: "guard-d6c77.firebasestorage.app",
-        messagingSenderId: "543378495814",
-        appId: "1:543378495814:web:504303c5b1f1368bd9ed47",
-        measurementId: "G-D47XRWQB1T"
-        };
-
-
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-
-        // User-specific data (anonymous UID for simplicity - in production use Firebase Auth)
-        const userId = 'default_user'; // Change to Firebase Auth UID for multi-user
-        const dataDoc = doc(db, 'wealthguard', userId);
-
-        window.wealthDb = { db, dataDoc, getDoc, setDoc, onSnapshot };
-    </script>
     <style>
         .active-tab {
             border-bottom: 3px solid black;
@@ -61,6 +35,7 @@
                 transform: translateY(100%);
                 opacity: 0;
             }
+
             to {
                 transform: translateY(0);
                 opacity: 1;
@@ -72,6 +47,7 @@
                 opacity: 0;
                 transform: scale(0.95);
             }
+
             to {
                 opacity: 1;
                 transform: scale(1);
@@ -83,6 +59,7 @@
                 opacity: 1;
                 transform: translateY(0);
             }
+
             to {
                 opacity: 0;
                 transform: translateY(100%);
@@ -90,9 +67,12 @@
         }
 
         @keyframes pulse {
-            0%, 100% {
+
+            0%,
+            100% {
                 transform: scale(1);
             }
+
             50% {
                 transform: scale(1.05);
             }
@@ -102,6 +82,7 @@
             0% {
                 background-position: -1000px 0;
             }
+
             100% {
                 background-position: 1000px 0;
             }
@@ -157,8 +138,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         /* Tab Transition */
@@ -251,8 +237,27 @@
     </nav>
 
     <script type="module">
-        // Access Firebase from window.wealthDb (initialized in the earlier module script)
-        const { db, dataDoc, getDoc, setDoc, onSnapshot } = window.wealthDb;
+        // Access Firebase from window (initialized in earlier script)
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+        import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+        // Get Firebase instances from earlier script
+        const firebaseConfig = {
+            apiKey: "AIzaSyCmBFrEt1lxzsikPM6c5qgJiy5hcLdmRas",
+            authDomain: "guard-d6c77.firebaseapp.com",
+            projectId: "guard-d6c77",
+            storageBucket: "guard-d6c77.firebasestorage.app",
+            messagingSenderId: "543378495814",
+            appId: "1:543378495814:web:504303c5b1f1368bd9ed47",
+            measurementId: "G-D47XRWQB1T"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const userId = 'default_user';
+        const dataDoc = doc(db, 'wealthguard', userId);
+
+        // ==== APP STATE AND LOGIC ====
 
         let state = {
             assets: [],
@@ -263,28 +268,127 @@
 
         let charts = {};
 
-        // Listen for real-time updates from Firestore
-        onSnapshot(dataDoc, (docSnap) => {
-            if (docSnap.exists()) {
-                state = docSnap.data();
-                // Ensure defaults
-                state.assets = state.assets || [];
-                state.spending = state.spending || [];
-                state.history = state.history || [];
-                state.budget = state.budget || 8000000;
-            } else {
-                // First time - use defaults
-                state.assets = [
-                    { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
-                    { symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
-                    { symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
-                ];
-                setDoc(dataDoc, state);
+        // Save to localStorage as backup
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem('wealthguard_state', JSON.stringify(state));
+                console.log('Data saved to localStorage');
+            } catch (e) {
+                console.error('Failed to save to localStorage:', e);
             }
-            syncPricesAndRender();
-        });
+        }
+
+        // Load from localStorage as fallback
+        function loadFromLocalStorage() {
+            try {
+                const saved = localStorage.getItem('wealthguard_state');
+                if (saved) {
+                    state = JSON.parse(saved);
+                    console.log('Data loaded from localStorage:', state);
+                    // Ensure defaults
+                    state.assets = state.assets || [];
+                    state.spending = state.spending || [];
+                    state.history = state.history || [];
+                    state.budget = state.budget || 8000000;
+                    return true;
+                }
+            } catch (e) {
+                console.error('Failed to load from localStorage:', e);
+            }
+            return false;
+        }
+
+        // Load data once on page load (no real-time listener to prevent feedback loops)
+        async function loadInitialData() {
+            console.log('Starting data load...');
+
+            // First, try to load from localStorage immediately for fast startup
+            const hasLocalData = loadFromLocalStorage();
+
+            // Render immediately with local data if available
+            if (hasLocalData) {
+                console.log('Rendering with localStorage data');
+                await syncPricesAndRender();
+            }
+
+            // Then try to sync with Firebase in the background
+            try {
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Firebase timeout')), 5000)
+                );
+                const docSnap = await Promise.race([getDoc(dataDoc), timeoutPromise]);
+
+                if (docSnap.exists()) {
+                    const firebaseData = docSnap.data();
+                    console.log('Data loaded from Firebase:', firebaseData);
+
+                    // Use Firebase data if it's different from local
+                    if (JSON.stringify(firebaseData) !== JSON.stringify(state)) {
+                        state = firebaseData;
+                        // Ensure defaults
+                        state.assets = state.assets || [];
+                        state.spending = state.spending || [];
+                        state.history = state.history || [];
+                        state.budget = state.budget || 8000000;
+                        // Save to localStorage as backup
+                        saveToLocalStorage();
+                        // Re-render with Firebase data
+                        await syncPricesAndRender();
+                    }
+                } else if (!hasLocalData) {
+                    console.log('No existing Firebase data, using defaults');
+                    // First time - use defaults
+                    state.assets = [
+                        { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                        { symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                        { symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+                    ];
+                    await setDoc(dataDoc, state);
+                    console.log('Default data saved to Firebase');
+                    saveToLocalStorage();
+                    await syncPricesAndRender();
+                }
+
+                // Check if we need to save daily snapshot
+                await checkAndSaveDailySnapshot();
+
+            } catch (error) {
+                console.error('Firebase error:', error.message || error);
+                if (!hasLocalData) {
+                    // No local data and Firebase failed - use defaults
+                    console.log('Using default data as fallback');
+                    state.assets = [
+                        { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                        { symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                        { symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+                    ];
+                    saveToLocalStorage();
+                    await syncPricesAndRender();
+                }
+            }
+
+            // Set up periodic price refresh (every minute, local only)
+            setInterval(syncPricesAndRender, 60000);
+        }
+
+        // Initialize app
+        loadInitialData();
 
         async function syncPricesAndRender() {
+            console.log('🔄 Starting price sync...');
+
+            // Crypto symbol to CoinGecko ID mapping
+            const cryptoIdMap = {
+                'BTC': 'bitcoin',
+                'ETH': 'ethereum',
+                'USDT': 'tether',
+                'BNB': 'binancecoin',
+                'SOL': 'solana',
+                'XRP': 'ripple',
+                'ADA': 'cardano',
+                'DOGE': 'dogecoin'
+            };
+
             // Fetch prices for crypto/stock/debt
             for (let asset of state.assets) {
                 if (asset.type === 'cash') {
@@ -298,38 +402,140 @@
                 }
                 try {
                     if (asset.type === 'crypto') {
-                        const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${asset.symbol.toLowerCase()}&vs_currencies=vnd`);
+                        // Map symbol to CoinGecko ID
+                        const coinId = cryptoIdMap[asset.symbol.toUpperCase()] || asset.symbol.toLowerCase();
+                        console.log(`📊 Fetching crypto price for ${asset.symbol} (${coinId})...`);
+
+                        const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=vnd`);
+                        if (!res.ok) {
+                            console.error(`❌ Crypto API error for ${asset.symbol}: ${res.status} ${res.statusText}`);
+                            asset.price = asset.price || 0;
+                            continue;
+                        }
+
                         const data = await res.json();
-                        asset.price = data[asset.symbol.toLowerCase()]?.vnd || asset.price || 0;
+                        console.log(`✅ Crypto data for ${asset.symbol}:`, data);
+
+                        if (data[coinId] && data[coinId].vnd) {
+                            asset.price = data[coinId].vnd;
+                            console.log(`💰 ${asset.symbol} price updated to: ${asset.price.toLocaleString()} VND (from Yahoo Finance)`);
+                        } else {
+                            console.warn(`⚠️ No price data found for ${asset.symbol}`);
+                            asset.price = asset.price || 0;
+                        }
                     } else if (asset.type === 'stock') {
-                        // Fetch Vietnam stock prices from VNDIRECT API with CORS proxy
+                        // Fetch Vietnam stock prices from Yahoo Finance API
+                        // Vietnamese stocks use .VN suffix (e.g., VND.VN, VIC.VN, HPG.VN)
+                        console.log(`📈 Fetching stock price for ${asset.symbol}...`);
+
                         try {
-                            const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                            const apiUrl = `https://finfo-api.vndirect.com.vn/v4/stock_prices/${asset.symbol.toUpperCase()}`;
-                            const res = await fetch(proxyUrl + encodeURIComponent(apiUrl));
-                            const data = await res.json();
+                            const yahooSymbol = `${asset.symbol.toUpperCase()}.VN`;
+                            const apiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`;
                             
-                            // VNDIRECT API returns array of price data
-                            if (data && data.data && data.data.length > 0) {
-                                // Use closePrice (closing price) and multiply by 1000 to convert to VND
-                                asset.price = (data.data[0].closePrice || data.data[0].matchPrice || asset.price || 0) * 1000;
+                            // Use CORS proxy to bypass restrictions
+                            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                            const fullUrl = proxyUrl + encodeURIComponent(apiUrl);
+
+                            console.log(`🔄 Fetching from Yahoo Finance Chart API: ${yahooSymbol}...`);
+
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+                            const res = await fetch(fullUrl, {
+                                signal: controller.signal,
+                                headers: {
+                                    'Accept': 'application/json'
+                                }
+                            });
+                            clearTimeout(timeoutId);
+
+                            if (!res.ok) {
+                                console.warn(`⚠️ Yahoo Finance returned ${res.status} for ${yahooSymbol}`);
+                                asset.price = asset.price || 0;
+                                continue;
+                            }
+
+                            const data = await res.json();
+                            console.log(`✅ Yahoo Finance Chart data for ${asset.symbol}:`, data);
+
+                            // Yahoo Finance Chart API response: { chart: { result: [{ meta: { regularMarketPrice: ... } }] } }
+                            if (data && data.chart && data.chart.result && data.chart.result.length > 0) {
+                                const result = data.chart.result[0];
+                                const meta = result.meta;
+                                
+                                // Use regularMarketPrice for stable intraday price
+                                const priceVND = meta.regularMarketPrice || meta.chartPreviousClose || 0;
+
+                                if (priceVND > 0) {
+                                    asset.price = priceVND;
+                                    console.log(`💰 ${asset.symbol} price updated to: ${asset.price.toLocaleString()} VND (from Yahoo Finance)`);
+                                    console.log(`   📊 Market info: High: ${meta.regularMarketDayHigh?.toLocaleString()} Low: ${meta.regularMarketDayLow?.toLocaleString()}`);
+                                } else {
+                                    console.warn(`⚠️ No valid price found for ${asset.symbol}`);
+                                    asset.price = asset.price || 0;
+                                }
                             } else {
-                                asset.price = asset.price || 0; // Keep last known
+                                console.warn(`⚠️ No chart data found for ${asset.symbol}`);
+                                asset.price = asset.price || 0;
                             }
                         } catch (stockErr) {
-                            console.log('VN Stock price fetch error for ' + asset.symbol, stockErr);
-                            asset.price = asset.price || 0; // Keep last known
+                            if (stockErr.name === 'AbortError') {
+                                console.error(`⏱️ Stock price fetch timeout for ${asset.symbol}`);
+                            } else {
+                                console.error(`❌ Yahoo Finance error for ${asset.symbol}:`, stockErr);
+                            }
+                            asset.price = asset.price || 0;
                         }
                     }
                 } catch (e) {
-                    console.log('Price fetch error for ' + asset.symbol, e);
+                    console.error(`❌ Price fetch error for ${asset.symbol}:`, e);
+                    asset.price = asset.price || 0;
                 }
             }
+
+            console.log('✅ Price sync complete. Current state:', state.assets.map(a => ({
+                symbol: a.symbol,
+                type: a.type,
+                price: a.price,
+                qty: a.qty,
+                value: a.price * a.qty
+            })));
+
+            // Only render UI - do NOT save to Firebase or record snapshot
             render();
-            recordSnapshot();
         }
 
-        setInterval(syncPricesAndRender, 60000); // Refresh prices every minute
+        // Check if we need to save daily snapshot (called once on load)
+        async function checkAndSaveDailySnapshot() {
+            const today = new Date().toLocaleDateString('vi-VN');
+            const lastSnapshot = localStorage.getItem('lastSnapshotDate');
+
+            if (lastSnapshot !== today) {
+                // Save snapshot to history
+                const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
+                const existing = state.history.find(h => h.date === today);
+                if (existing) {
+                    existing.val = total;
+                } else {
+                    state.history.push({ date: today, val: total });
+                }
+                // Keep only last 14 days
+                if (state.history.length > 14) state.history.shift();
+
+                // Save to both Firebase and localStorage
+                try {
+                    await setDoc(dataDoc, state);
+                    console.log('Daily snapshot saved to Firebase for:', today);
+                } catch (error) {
+                    console.error('Failed to save daily snapshot to Firebase:', error);
+                }
+                saveToLocalStorage();
+
+                // Update localStorage
+                localStorage.setItem('lastSnapshotDate', today);
+                console.log('Daily snapshot saved for:', today);
+            }
+        }
 
         function toggleModal(show) {
             const m = document.getElementById('asset-modal');
@@ -375,10 +581,10 @@
                         </div>
                         <div>
                             <label class="text-[10px] text-gray-400">${a.type === 'debt' ? 'Price (enter positive)' : 'Current Price (VND)'}</label>
-                            ${a.type === 'debt' ? 
-                                `<input type="number" step="any" onchange="updateAssetDebtPrice(${i}, this.value)" value="${Math.abs(a.price || 0)}" class="w-full bg-white border p-2 rounded-lg text-sm">` :
-                                `<input type="number" value="${Math.round(a.price || 0).toLocaleString()}" class="w-full bg-gray-200 border p-2 rounded-lg text-sm" disabled>`
-                            }
+                            ${a.type === 'debt' ?
+                    `<input type="number" step="any" onchange="updateAssetDebtPrice(${i}, this.value)" value="${Math.abs(a.price || 0)}" class="w-full bg-white border p-2 rounded-lg text-sm">` :
+                    `<input type="number" value="${Math.round(a.price || 0).toLocaleString()}" class="w-full bg-gray-200 border p-2 rounded-lg text-sm" disabled>`
+                }
                             ${a.type !== 'debt' ? `<button onclick="manualRefreshPrice(${i})" class="text-xs text-blue-600 mt-1">Refresh <span id="loading-${i}" class="spinner hidden"></span></button>` : ''}
                         </div>
                     </div>
@@ -408,49 +614,62 @@
             // Show loading spinner
             const spinner = document.getElementById(`loading-${i}`);
             if (spinner) spinner.classList.remove('hidden');
-            
+
             // Force refresh one asset
             await syncPricesAndRender();
-            
+
             // Hide loading spinner
             if (spinner) spinner.classList.add('hidden');
-            
+
             // Re-render editor to show updated price
             renderEditor();
         }
         window.manualRefreshPrice = manualRefreshPrice; // Expose to global scope
 
         async function saveAndClose() {
-            await setDoc(dataDoc, state);
-            toggleModal(false);
+            try {
+                await setDoc(dataDoc, state);
+                saveToLocalStorage(); // Also save to localStorage
+                console.log('Assets saved successfully');
+                await syncPricesAndRender(); // Update prices and render display
+                toggleModal(false);
+            } catch (error) {
+                console.error('Failed to save assets:', error);
+                // Still save to localStorage even if Firebase fails
+                saveToLocalStorage();
+                alert('Warning: Failed to sync with Firebase, but saved locally.');
+                await syncPricesAndRender();
+                toggleModal(false);
+            }
         }
         window.saveAndClose = saveAndClose; // Expose to global scope
 
-        function addSpend() {
+        async function addSpend() {
             const amt = parseFloat(document.getElementById('in-amt').value);
             const cat = document.getElementById('in-cat').value;
             if (!amt || amt <= 0) return;
             state.spending.push({ amt, cat, date: new Date().toISOString().split('T')[0] });
             document.getElementById('in-amt').value = '';
-            recordSnapshot();
-            render();
-            setDoc(dataDoc, state); // Firestore sync
+
+            // Save to both Firebase and localStorage
+            try {
+                await setDoc(dataDoc, state);
+                saveToLocalStorage(); // Also save to localStorage
+                console.log('Spending saved successfully');
+                render();
+            } catch (error) {
+                console.error('Failed to save spending to Firebase:', error);
+                // Still save to localStorage even if Firebase fails
+                saveToLocalStorage();
+                render();
+            }
         }
         window.addSpend = addSpend; // Expose to global scope
-
-        function recordSnapshot() {
-            const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
-            const today = new Date().toLocaleDateString('vi-VN');
-            const existing = state.history.find(h => h.date === today);
-            if (existing) existing.val = total;
-            else state.history.push({ date: today, val: total });
-            if (state.history.length > 14) state.history.shift();
-        }
 
         function showView(view) {
             const homeView = document.getElementById('view-home');
             const analyticsView = document.getElementById('view-analytics');
-            
+
             // Add fade out
             if (view === 'home') {
                 analyticsView.classList.add('hidden');
@@ -461,7 +680,7 @@
                 analyticsView.classList.remove('hidden');
                 analyticsView.classList.add('view-transition');
             }
-            
+
             document.querySelectorAll('nav button').forEach(b => b.classList.remove('active-tab'));
             document.getElementById('btn-' + view).classList.add('active-tab');
             if (view === 'analytics') renderCharts();
@@ -471,7 +690,7 @@
         function render() {
             const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
             const totalEl = document.getElementById('total-val');
-            
+
             // Animate value change
             totalEl.classList.add('value-animate');
             totalEl.innerText = Math.round(total).toLocaleString('vi-VN') + ' ₫';
@@ -479,11 +698,11 @@
             document.getElementById('asset-display-list').innerHTML = state.assets.map((a, idx) => {
                 const value = a.qty * (a.price || 0);
                 const isDebt = a.type === 'debt';
-                const colorClass = isDebt ? 'text-red-600' : 
-                                   a.type === 'crypto' ? 'text-orange-500' : 
-                                   a.type === 'stock' ? 'text-blue-600' : 
-                                   'text-green-600';
-                
+                const colorClass = isDebt ? 'text-red-600' :
+                    a.type === 'crypto' ? 'text-orange-500' :
+                        a.type === 'stock' ? 'text-blue-600' :
+                            'text-green-600';
+
                 return `
                 <div class="asset-card bg-white p-4 rounded-3xl border border-gray-100 shadow-sm ${isDebt ? 'debt-card' : ''}" style="animation-delay: ${idx * 0.05}s">
                     <p class="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
@@ -511,30 +730,30 @@
                 type: 'line',
                 data: {
                     labels: state.history.map(h => h.date),
-                    datasets: [{ 
-                        label: 'Net Worth', 
-                        data: state.history.map(h => h.val), 
-                        borderColor: '#000', 
+                    datasets: [{
+                        label: 'Net Worth',
+                        data: state.history.map(h => h.val),
+                        borderColor: '#000',
                         backgroundColor: 'rgba(0, 0, 0, 0.05)',
                         fill: true,
-                        tension: 0.4 
+                        tension: 0.4
                     }]
                 },
-                options: { 
+                options: {
                     animation: {
                         duration: 1000,
                         easing: 'easeInOutQuart'
                     },
-                    plugins: { 
-                        legend: { display: false } 
-                    }, 
-                    scales: { 
-                        y: { 
-                            ticks: { 
-                                callback: v => v.toLocaleString('vi-VN') + ' ₫' 
-                            } 
-                        } 
-                    } 
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            ticks: {
+                                callback: v => v.toLocaleString('vi-VN') + ' ₫'
+                            }
+                        }
+                    }
                 }
             });
 
@@ -546,20 +765,20 @@
                 type: 'doughnut',
                 data: {
                     labels: cats,
-                    datasets: [{ 
-                        data: catData, 
-                        backgroundColor: ['#000', '#333', '#666', '#999', '#CCC', '#EEE'] 
+                    datasets: [{
+                        data: catData,
+                        backgroundColor: ['#000', '#333', '#666', '#999', '#CCC', '#EEE']
                     }]
                 },
-                options: { 
+                options: {
                     animation: {
                         duration: 1000,
                         animateRotate: true,
                         animateScale: true
                     },
-                    plugins: { 
-                        legend: { position: 'right' } 
-                    } 
+                    plugins: {
+                        legend: { position: 'right' }
+                    }
                 }
             });
         }
