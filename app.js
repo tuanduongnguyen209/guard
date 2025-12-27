@@ -1,0 +1,900 @@
+// Access Firebase from window (initialized in earlier script)
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, collection, addDoc, query, where, orderBy, getDocs, deleteField, updateDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+// Get Firebase instances from earlier script
+const firebaseConfig = {
+    apiKey: "AIzaSyCmBFrEt1lxzsikPM6c5qgJiy5hcLdmRas",
+    authDomain: "guard-d6c77.firebaseapp.com",
+    projectId: "guard-d6c77",
+    storageBucket: "guard-d6c77.firebasestorage.app",
+    messagingSenderId: "543378495814",
+    appId: "1:543378495814:web:504303c5b1f1368bd9ed47",
+    measurementId: "G-D47XRWQB1T"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const userId = 'default_user';
+const dataDoc = doc(db, 'wealthguard', userId);
+const spendingCol = collection(db, 'wealthguard', userId, 'spending');
+
+// ==== APP STATE AND LOGIC ====
+
+let state = {
+    assets: [],
+    spending: [], // Now represents the CURRENTLY LOADED list (based on filter)
+    history: [],
+    budget: 8000000,
+    filter: 'this_month'
+};
+
+let charts = {};
+
+// Save to localStorage as backup
+function saveToLocalStorage() {
+    try {
+        // We don't save 'spending' to local storage anymore to avoid confusion with Partial Data
+        const toSave = { ...state };
+        delete toSave.spending;
+        localStorage.setItem('wealthguard_state_v2', JSON.stringify(toSave));
+    } catch (e) {
+        console.error('Failed to save to localStorage:', e);
+    }
+}
+
+// Load from localStorage as fallback
+function loadFromLocalStorage() {
+    try {
+        const saved = localStorage.getItem('wealthguard_state_v2');
+        if (saved) {
+            const localState = JSON.parse(saved);
+            state = { ...state, ...localState };
+            return true;
+        }
+
+        // Fallback for migration
+        const oldSaved = localStorage.getItem('wealthguard_state');
+        if (oldSaved) {
+            const oldState = JSON.parse(oldSaved);
+            state = { ...state, ...oldState };
+            state.spending = []; // Clear
+            return true;
+        }
+    } catch (e) {
+        console.error('Failed to load from localStorage:', e);
+    }
+    return false;
+}
+
+// Helper: Get Date Ranges
+function getDateRange(type) {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    let start = new Date();
+
+    if (type === 'this_month') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (type === 'last_month') {
+        start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const end = new Date(now.getFullYear(), now.getMonth(), 0);
+        return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0], label: 'Last Month' };
+    } else if (type === 'last_3_months') {
+        start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    } else if (type === 'ytd') {
+        start = new Date(now.getFullYear(), 0, 1);
+    } else if (type === 'all') {
+        return { start: '2000-01-01', end: todayStr, label: 'All Time' };
+    }
+
+    return { start: start.toISOString().split('T')[0], end: todayStr, label: type.replace('_', ' ').toUpperCase() };
+}
+
+// Generate a simple unique ID
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// ONE-TIME MIGRATION: Move array spending to sub-collection
+async function migrateOldSpending(docSnap) {
+    const data = docSnap.data();
+    if (data && data.spending && Array.isArray(data.spending) && data.spending.length > 0) {
+        console.log('⚠️ Detect old array-based spending. Migrating...', data.spending.length);
+        let batchCount = 0;
+        for (const item of data.spending) {
+            if (!item.date) item.date = new Date().toISOString().split('T')[0];
+            await addDoc(spendingCol, item);
+            batchCount++;
+        }
+        console.log(`✅ Migrated ${batchCount} items to sub-collection.`);
+        await updateDoc(dataDoc, { spending: deleteField() });
+    }
+}
+
+async function loadSpendingData(rangeType) {
+    console.log(`📥 Loading spending for: ${rangeType}`);
+    state.filter = rangeType;
+    const range = getDateRange(rangeType);
+
+    const labelEl = document.getElementById('chart-range-label');
+    if (labelEl) labelEl.innerText = range.label;
+
+    try {
+        const q = query(
+            spendingCol,
+            where("date", ">=", range.start),
+            where("date", "<=", range.end),
+            orderBy("date", "desc")
+        );
+
+        const querySnapshot = await getDocs(q);
+        state.spending = [];
+        querySnapshot.forEach((doc) => {
+            state.spending.push({ id: doc.id, ...doc.data() });
+        });
+
+        renderSpending();
+
+        // If analytics visible, render charts
+        if (!document.getElementById('view-analytics').classList.contains('hidden')) renderCharts();
+
+        render(); // for total indicators
+
+    } catch (e) {
+        console.error("Failed to load spending:", e);
+        const list = document.getElementById('spending-history-list');
+        if (list) list.innerHTML = `<div class="text-red-400 text-center p-4">Could not load history.</div>`;
+    }
+}
+window.changeTimeRange = loadSpendingData;
+
+// Load data once on page load (no real-time listener to prevent feedback loops)
+async function loadInitialData() {
+    console.log('Starting data load...');
+
+    // 1. Load Local (Assets only)
+    const hasLocalData = loadFromLocalStorage();
+
+    // Render immediately with local data if available
+    if (hasLocalData) {
+        console.log('Rendering with localStorage data');
+        // Backfill IDs if missing
+        state.assets.forEach(a => { if (!a.id) a.id = generateId(); });
+        await syncPricesAndRender();
+    }
+
+    // 2. Load Firebase Main Doc (Assets + Settings)
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Firebase timeout')), 5000)
+        );
+        const docSnap = await Promise.race([getDoc(dataDoc), timeoutPromise]);
+
+        if (docSnap.exists()) {
+            // Check Migration
+            await migrateOldSpending(docSnap);
+
+            const firebaseData = docSnap.data();
+            console.log('Data loaded from Firebase:', firebaseData);
+
+            if (firebaseData.assets) state.assets = firebaseData.assets;
+            if (firebaseData.history) state.history = firebaseData.history;
+            if (firebaseData.budget) state.budget = firebaseData.budget;
+
+            state.assets.forEach(a => { if (!a.id) a.id = generateId(); });
+
+            saveToLocalStorage();
+            await syncPricesAndRender();
+
+        } else if (!hasLocalData) {
+            console.log('No existing Firebase data, using defaults');
+            state.assets = [
+                { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                { id: generateId(), symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+            ];
+            await setDoc(dataDoc, { assets: state.assets, history: [], budget: state.budget });
+            console.log('Default data saved to Firebase');
+            saveToLocalStorage();
+            await syncPricesAndRender();
+        }
+
+        // 3. Load Spending (Default to This Month)
+        await loadSpendingData('this_month');
+
+        await checkAndSaveDailySnapshot();
+
+    } catch (error) {
+        console.error('Firebase error:', error.message || error);
+        if (!hasLocalData) {
+            console.log('Using default data as fallback');
+            state.assets = [
+                { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                { id: generateId(), symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+            ];
+            saveToLocalStorage();
+            await syncPricesAndRender();
+        }
+    }
+
+    // Set up periodic price refresh (every minute, local only)
+    setInterval(syncPricesAndRender, 60000);
+}
+
+// DEPRECATED: Old loading function
+async function loadInitialData_deprecated() {
+    console.log('Starting data load...');
+
+    // First, try to load from localStorage immediately for fast startup
+    const hasLocalData = loadFromLocalStorage();
+
+    // Render immediately with local data if available
+    if (hasLocalData) {
+        console.log('Rendering with localStorage data');
+        // Backfill IDs if missing
+        state.assets.forEach(a => { if (!a.id) a.id = generateId(); });
+        await syncPricesAndRender();
+    }
+
+    // Then try to sync with Firebase in the background
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Firebase timeout')), 5000)
+        );
+        const docSnap = await Promise.race([getDoc(dataDoc), timeoutPromise]);
+
+        if (docSnap.exists()) {
+            const firebaseData = docSnap.data();
+            console.log('Data loaded from Firebase:', firebaseData);
+
+            // Use Firebase data if it's different from local
+            if (JSON.stringify(firebaseData) !== JSON.stringify(state)) {
+                state = firebaseData;
+                // Ensure defaults
+                state.assets = state.assets || [];
+                state.spending = state.spending || [];
+                state.history = state.history || [];
+                state.budget = state.budget || 8000000;
+
+                // Backfill IDs if missing
+                state.assets.forEach(a => { if (!a.id) a.id = generateId(); });
+
+                // Save to localStorage as backup
+                saveToLocalStorage();
+                // Re-render with Firebase data
+                await syncPricesAndRender();
+            }
+        } else if (!hasLocalData) {
+            console.log('No existing Firebase data, using defaults');
+            // First time - use defaults
+            state.assets = [
+                { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                { id: generateId(), symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+            ];
+            await setDoc(dataDoc, state);
+            console.log('Default data saved to Firebase');
+            saveToLocalStorage();
+            await syncPricesAndRender();
+        }
+
+        // Check if we need to save daily snapshot
+        await checkAndSaveDailySnapshot();
+
+    } catch (error) {
+        console.error('Firebase error:', error.message || error);
+        if (!hasLocalData) {
+            // No local data and Firebase failed - use defaults
+            console.log('Using default data as fallback');
+            state.assets = [
+                { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                { id: generateId(), symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+            ];
+            // Add some default history/spending for better first impression
+            const today = new Date();
+            state.history = Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(today);
+                d.setDate(d.getDate() - (6 - i));
+                return {
+                    date: d.toLocaleDateString('vi-VN'),
+                    val: 5000000 + (Math.random() * 500000)
+                };
+            });
+            state.spending = [
+                { amt: 50000, cat: 'Food', date: today.toISOString().split('T')[0] },
+                { amt: 100000, cat: 'Transport', date: today.toISOString().split('T')[0] }
+            ];
+            saveToLocalStorage();
+            await syncPricesAndRender();
+        }
+    }
+
+    // Set up periodic price refresh (every minute, local only)
+    setInterval(syncPricesAndRender, 60000);
+}
+
+// Initialize app
+loadInitialData();
+
+async function syncPricesAndRender() {
+    console.log('🔄 Starting price sync...');
+
+    // Crypto symbol to CoinGecko ID mapping
+    const cryptoIdMap = {
+        'BTC': 'bitcoin',
+        'ETH': 'ethereum',
+        'USDT': 'tether',
+        'BNB': 'binancecoin',
+        'SOL': 'solana',
+        'XRP': 'ripple',
+        'ADA': 'cardano',
+        'DOGE': 'dogecoin'
+    };
+
+    // Fetch prices for crypto/stock/debt
+    for (let asset of state.assets) {
+        // Ensure asset has ID
+        if (!asset.id) asset.id = generateId();
+
+        if (asset.type === 'cash') {
+            asset.price = 1;
+            continue;
+        }
+        if (asset.type === 'debt') {
+            // Debt uses negative price value, don't fetch
+            asset.price = asset.price || 0; // Keep the negative value
+            continue;
+        }
+        try {
+            if (asset.type === 'crypto') {
+                // Map symbol to CoinGecko ID
+                const coinId = cryptoIdMap[asset.symbol.toUpperCase()] || asset.symbol.toLowerCase();
+                console.log(`📊 Fetching crypto price for ${asset.symbol} (${coinId})...`);
+
+                const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=vnd`);
+                if (!res.ok) {
+                    console.error(`❌ Crypto API error for ${asset.symbol}: ${res.status} ${res.statusText}`);
+                    asset.price = asset.price || 0;
+                    continue;
+                }
+
+                const data = await res.json();
+                console.log(`✅ Crypto data for ${asset.symbol}:`, data);
+
+                if (data[coinId] && data[coinId].vnd) {
+                    asset.price = data[coinId].vnd;
+                    console.log(`💰 ${asset.symbol} price updated to: ${asset.price.toLocaleString()} VND (from Yahoo Finance)`);
+                } else {
+                    console.warn(`⚠️ No price data found for ${asset.symbol}`);
+                    asset.price = asset.price || 0;
+                }
+            } else if (asset.type === 'stock') {
+                // Fetch Vietnam stock prices from Yahoo Finance API
+                // Vietnamese stocks use .VN suffix (e.g., VND.VN, VIC.VN, HPG.VN)
+                console.log(`📈 Fetching stock price for ${asset.symbol}...`);
+
+                try {
+                    const yahooSymbol = `${asset.symbol.toUpperCase()}.VN`;
+                    const apiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`;
+
+                    // Use CORS proxy to bypass restrictions
+                    const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                    const fullUrl = proxyUrl + encodeURIComponent(apiUrl);
+
+                    console.log(`🔄 Fetching from Yahoo Finance Chart API: ${yahooSymbol}...`);
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+                    const res = await fetch(fullUrl, {
+                        signal: controller.signal,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (!res.ok) {
+                        console.warn(`⚠️ Yahoo Finance returned ${res.status} for ${yahooSymbol}`);
+                        asset.price = asset.price || 0;
+                        continue;
+                    }
+
+                    const data = await res.json();
+                    console.log(`✅ Yahoo Finance Chart data for ${asset.symbol}:`, data);
+
+                    // Yahoo Finance Chart API response: { chart: { result: [{ meta: { regularMarketPrice: ... } }] } }
+                    if (data && data.chart && data.chart.result && data.chart.result.length > 0) {
+                        const result = data.chart.result[0];
+                        const meta = result.meta;
+
+                        // Use regularMarketPrice for stable intraday price
+                        const priceVND = meta.regularMarketPrice || meta.chartPreviousClose || 0;
+
+                        if (priceVND > 0) {
+                            asset.price = priceVND;
+                            console.log(`💰 ${asset.symbol} price updated to: ${asset.price.toLocaleString()} VND (from Yahoo Finance)`);
+                            console.log(`   📊 Market info: High: ${meta.regularMarketDayHigh?.toLocaleString()} Low: ${meta.regularMarketDayLow?.toLocaleString()}`);
+                        } else {
+                            console.warn(`⚠️ No valid price found for ${asset.symbol}`);
+                            asset.price = asset.price || 0;
+                        }
+                    } else {
+                        console.warn(`⚠️ No chart data found for ${asset.symbol}`);
+                        asset.price = asset.price || 0;
+                    }
+                } catch (stockErr) {
+                    if (stockErr.name === 'AbortError') {
+                        console.error(`⏱️ Stock price fetch timeout for ${asset.symbol}`);
+                    } else {
+                        console.error(`❌ Yahoo Finance error for ${asset.symbol}:`, stockErr);
+                    }
+                    asset.price = asset.price || 0;
+                }
+            }
+        } catch (e) {
+            console.error(`❌ Price fetch error for ${asset.symbol}:`, e);
+            asset.price = asset.price || 0;
+        }
+    }
+
+    console.log('✅ Price sync complete. Current state:', state.assets.map(a => ({
+        symbol: a.symbol,
+        type: a.type,
+        price: a.price,
+        qty: a.qty,
+        value: a.price * a.qty
+    })));
+
+    // Only render UI - do NOT save to Firebase or record snapshot
+    render();
+}
+
+// Check if we need to save daily snapshot (called once on load)
+async function checkAndSaveDailySnapshot() {
+    const today = new Date().toLocaleDateString('vi-VN');
+    const lastSnapshot = localStorage.getItem('lastSnapshotDate');
+
+    if (lastSnapshot !== today) {
+        // Save snapshot to history
+        const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
+        const existing = state.history.find(h => h.date === today);
+        if (existing) {
+            existing.val = total;
+        } else {
+            state.history.push({ date: today, val: total });
+        }
+        // Keep only last 14 days
+        if (state.history.length > 14) state.history.shift();
+
+        // Save to both Firebase and localStorage
+        try {
+            await setDoc(dataDoc, state);
+            console.log('Daily snapshot saved to Firebase for:', today);
+        } catch (error) {
+            console.error('Failed to save daily snapshot to Firebase:', error);
+        }
+        saveToLocalStorage();
+
+        // Update localStorage
+        localStorage.setItem('lastSnapshotDate', today);
+        console.log('Daily snapshot saved for:', today);
+    }
+}
+
+function toggleModal(show) {
+    const m = document.getElementById('asset-modal');
+    if (!show) {
+        // Add closing animation
+        m.classList.add('modal-closing');
+        setTimeout(() => {
+            m.classList.add('hidden');
+            m.classList.remove('modal-closing');
+        }, 300);
+    } else {
+        m.classList.remove('hidden');
+        renderEditor();
+    }
+}
+window.toggleModal = toggleModal; // Expose to global scope
+
+function addNewAsset() {
+    state.assets.push({ id: generateId(), symbol: 'NEW', name: 'New Asset', type: 'crypto', qty: 0 });
+    renderEditor();
+}
+window.addNewAsset = addNewAsset; // Expose to global scope
+
+function renderEditor() {
+    const container = document.getElementById('editor-list');
+    container.innerHTML = state.assets.map((a, i) => `
+        <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+            <div class="flex justify-between mb-2">
+                <input type="text" placeholder="Symbol (e.g. BTC, VND)" onchange="updateAsset('${a.id}', 'symbol', this.value)" value="${a.symbol}" class="font-bold uppercase">
+                <button onclick="removeAsset('${a.id}')" class="text-red-500 text-xs">Remove</button>
+            </div>
+            <input type="text" placeholder="Name" onchange="updateAsset('${a.id}', 'name', this.value)" value="${a.name}" class="mb-2 w-full">
+            <select onchange="updateAsset('${a.id}', 'type', this.value)" class="mb-2 w-full bg-white border p-2 rounded-lg">
+                <option value="crypto" ${a.type === 'crypto' ? 'selected' : ''}>Crypto</option>
+                <option value="stock" ${a.type === 'stock' ? 'selected' : ''}>VN Stock</option>
+                <option value="cash" ${a.type === 'cash' ? 'selected' : ''}>Cash</option>
+                <option value="debt" ${a.type === 'debt' ? 'selected' : ''}>Debt/Loan</option>
+            </select>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-[10px] text-gray-400">${a.type === 'debt' ? 'Amount (will be negative)' : 'Quantity'}</label>
+                    <input type="number" step="any" onchange="updateAsset('${a.id}', 'qty', this.value)" value="${a.qty || 0}" class="w-full bg-white border p-2 rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="text-[10px] text-gray-400">${a.type === 'debt' ? 'Price (enter positive)' : 'Current Price (VND)'}</label>
+                    ${a.type === 'debt' ?
+            `<input type="number" step="any" onchange="updateAssetDebtPrice('${a.id}', this.value)" value="${Math.abs(a.price || 0)}" class="w-full bg-white border p-2 rounded-lg text-sm">` :
+            `<input type="number" value="${Math.round(a.price || 0).toLocaleString()}" class="w-full bg-gray-200 border p-2 rounded-lg text-sm" disabled>`
+        }
+                    ${a.type !== 'debt' ? `<button onclick="manualRefreshPrice('${a.id}')" class="text-xs text-blue-600 mt-1">Refresh <span id="loading-${a.id}" class="spinner hidden"></span></button>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateAsset(id, field, value) {
+    const asset = state.assets.find(a => a.id === id);
+    if (!asset) return;
+
+    if (field === 'qty') value = parseFloat(value) || 0;
+    asset[field] = value;
+}
+window.updateAsset = updateAsset; // Expose to global scope
+
+function updateAssetDebtPrice(id, value) {
+    const asset = state.assets.find(a => a.id === id);
+    if (!asset) return;
+
+    // For debt, store as negative value
+    asset.price = -(Math.abs(parseFloat(value)) || 0);
+}
+window.updateAssetDebtPrice = updateAssetDebtPrice; // Expose to global scope
+
+function removeAsset(id) {
+    const idx = state.assets.findIndex(a => a.id === id);
+    if (idx !== -1) {
+        state.assets.splice(idx, 1);
+        renderEditor();
+    }
+}
+window.removeAsset = removeAsset; // Expose to global scope
+
+async function manualRefreshPrice(id) {
+    // Show loading spinner
+    const spinner = document.getElementById(`loading-${id}`);
+    if (spinner) spinner.classList.remove('hidden');
+
+    // Force refresh all prices (simpler than separating logic just for one, given the cache/API structure)
+    // But to optimize we could extract the single fetch. For now, running syncPricesAndRender is safest.
+    await syncPricesAndRender();
+
+    // Hide loading spinner
+    if (spinner) spinner.classList.add('hidden');
+
+    // Re-render editor to show updated price
+    renderEditor();
+}
+window.manualRefreshPrice = manualRefreshPrice; // Expose to global scope
+
+async function saveAndClose() {
+    try {
+        await setDoc(dataDoc, state);
+        saveToLocalStorage(); // Also save to localStorage
+        console.log('Assets saved successfully');
+        await syncPricesAndRender(); // Update prices and render display
+        toggleModal(false);
+    } catch (error) {
+        console.error('Failed to save assets:', error);
+        // Still save to localStorage even if Firebase fails
+        saveToLocalStorage();
+        alert('Warning: Failed to sync with Firebase, but saved locally.');
+        await syncPricesAndRender();
+        toggleModal(false);
+    }
+}
+window.saveAndClose = saveAndClose; // Expose to global scope
+
+async function addSpend() {
+    const amt = parseFloat(document.getElementById('in-amt').value);
+    const cat = document.getElementById('in-cat').value;
+    if (!amt || amt <= 0) return;
+
+    const newSpend = {
+        amt,
+        cat,
+        date: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString()
+    };
+
+    // Save to Firebase Subcollection
+    try {
+        // Add to subcollection
+        await addDoc(spendingCol, newSpend);
+        console.log('Spending saved successfully to sub-collection');
+
+        // Clear input
+        document.getElementById('in-amt').value = '';
+
+        // Reload data to reflect change (simplest way to update UI with correct sort/filter)
+        await loadSpendingData(state.filter || 'this_month');
+
+    } catch (error) {
+        console.error('Failed to save spending to Firebase:', error);
+        alert('Failed to save spending. Please check connection.');
+    }
+}
+window.addSpend = addSpend; // Expose to global scope
+
+function showView(view) {
+    const homeView = document.getElementById('view-home');
+    const analyticsView = document.getElementById('view-analytics');
+    const spendingView = document.getElementById('view-spending');
+
+    // Hide all first
+    [homeView, analyticsView, spendingView].forEach(v => {
+        if (v) {
+            v.classList.add('hidden');
+            v.classList.remove('view-transition');
+        }
+    });
+
+    // Show selected
+    if (view === 'home') {
+        homeView.classList.remove('hidden');
+        homeView.classList.add('view-transition');
+    } else if (view === 'analytics') {
+        analyticsView.classList.remove('hidden');
+        analyticsView.classList.add('view-transition');
+        // Ensure charts render with current data
+        setTimeout(renderCharts, 50);
+    } else if (view === 'spending') {
+        spendingView.classList.remove('hidden');
+        spendingView.classList.add('view-transition');
+        renderSpending();
+    }
+
+    document.querySelectorAll('nav button').forEach(b => {
+        b.classList.remove('active-tab');
+        b.setAttribute('aria-selected', 'false');
+    });
+    const activeBtn = document.getElementById('btn-' + view);
+    if (activeBtn) {
+        activeBtn.classList.add('active-tab');
+        activeBtn.setAttribute('aria-selected', 'true');
+    }
+}
+window.showView = showView; // Expose to global scope
+
+function render() {
+    const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
+    const totalEl = document.getElementById('total-val');
+
+    // Animate value change
+    totalEl.classList.add('value-animate');
+    totalEl.innerText = Math.round(total).toLocaleString('vi-VN') + ' ₫';
+
+    document.getElementById('asset-display-list').innerHTML = state.assets.map((a, idx) => {
+        const value = a.qty * (a.price || 0);
+        const isDebt = a.type === 'debt';
+        const colorClass = isDebt ? 'text-red-600' :
+            a.type === 'crypto' ? 'text-orange-500' :
+                a.type === 'stock' ? 'text-blue-600' :
+                    'text-green-600';
+
+        return `
+        <div class="asset-card bg-white p-4 rounded-3xl border border-gray-100 shadow-sm ${isDebt ? 'debt-card' : ''}" style="animation-delay: ${idx * 0.05}s">
+            <p class="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                ${isDebt ? '⚠️ ' : ''}${a.name} (${a.symbol})
+            </p>
+            <p class="font-bold ${colorClass}">
+                ${Math.round(value).toLocaleString('vi-VN')} ₫
+            </p>
+            <p class="text-xs text-gray-500">${a.qty} × ${Math.round(Math.abs(a.price || 0)).toLocaleString('vi-VN')} ₫${isDebt ? ' (debt)' : ''}</p>
+        </div>
+    `}).join('');
+
+    const spentThisMonth = state.spending
+        .filter(s => s.date.startsWith(new Date().toISOString().slice(0, 7)))
+        .reduce((s, x) => s + x.amt, 0);
+    const ratio = spentThisMonth / state.budget;
+    document.body.style.backgroundColor = ratio > 0.8 ? "#fef2f2" : "#f8fafc";
+    document.getElementById('coach-msg').innerText = ratio > 0.8 ? "WARNING: SPENDING HIGH" : "Discipline is freedom.";
+}
+
+// Render the spending list in the new tab
+function renderSpending() {
+    const list = document.getElementById('spending-history-list');
+    if (!list) return;
+
+    if (!state.spending || state.spending.length === 0) {
+        list.innerHTML = '<div class="text-center text-gray-400 py-8">No spending history yet.</div>';
+        return;
+    }
+
+    // Sort by date descending (newest first)
+    const sorted = [...state.spending].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    list.innerHTML = sorted.map(s => `
+        <div class="flex justify-between items-center p-4 bg-white rounded-2xl border border-gray-50 mb-2">
+            <div class="flex items-center gap-3">
+                <div class="bg-gray-100 p-2 rounded-full text-lg">
+                    ${getCategoryIcon(s.cat)}
+                </div>
+                <div>
+                    <p class="font-bold text-sm">${s.cat}</p>
+                    <p class="text-[10px] text-gray-400">${s.date}</p>
+                </div>
+            </div>
+            <div class="font-bold text-red-500">
+                -${s.amt.toLocaleString('vi-VN')} ₫
+            </div>
+        </div>
+    `).join('');
+}
+
+function getCategoryIcon(cat) {
+    const map = {
+        'Food': '🍔',
+        'Transport': '🚗',
+        'Bills': '📄',
+        'Investing': '📈',
+        'Entertainment': '🎬',
+        'Other': '📦'
+    };
+    return map[cat] || '💸';
+}
+
+function renderCharts() {
+    // Check if there is data to render
+    const hasHistory = state.history && state.history.length > 0;
+    const hasSpending = state.spending && state.spending.length > 0;
+    const hasAssets = state.assets && state.assets.length > 0;
+
+    // --- History Chart ---
+    const ctxH = document.getElementById('historyChart').getContext('2d');
+    if (charts.h) charts.h.destroy();
+
+    // Create gradient
+    let gradient = ctxH.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    const historyData = hasHistory ? state.history : [{ date: 'Today', val: state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0) }];
+
+    charts.h = new Chart(ctxH, {
+        type: 'line',
+        data: {
+            labels: historyData.map(h => h.date),
+            datasets: [{
+                label: 'Net Worth',
+                data: historyData.map(h => h.val),
+                borderColor: '#000',
+                borderWidth: 3,
+                backgroundColor: gradient,
+                fill: true,
+                tension: 0.4,
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#000',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 1000,
+                easing: 'easeOutQuart'
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    padding: 12,
+                    titleFont: { size: 13 },
+                    bodyFont: { size: 13, weight: 'bold' },
+                    callbacks: {
+                        label: (ctx) => ' ' + ctx.parsed.y.toLocaleString('vi-VN') + ' ₫'
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                y: {
+                    border: { display: false },
+                    grid: { color: '#f3f4f6' },
+                    ticks: {
+                        callback: v => (v / 1000000).toFixed(1) + 'M',
+                        font: { size: 10 }
+                    }
+                }
+            }
+        }
+    });
+
+    // --- Asset Allocation Chart ---
+    const ctxA = document.getElementById('allocationChart').getContext('2d');
+    if (charts.a) charts.a.destroy();
+
+    const assetTypes = ['crypto', 'stock', 'cash', 'debt'];
+    const typeLabels = ['Crypto', 'Stocks', 'Cash', 'Debt'];
+    const typeColors = ['#f97316', '#2563eb', '#16a34a', '#dc2626']; // Orange, Blue, Green, Red
+
+    const allocationData = assetTypes.map(t =>
+        state.assets.filter(a => a.type === t).reduce((sum, a) => sum + Math.abs(a.qty * (a.price || 0)), 0)
+    );
+
+    charts.a = new Chart(ctxA, {
+        type: 'doughnut',
+        data: {
+            labels: typeLabels,
+            datasets: [{
+                data: hasAssets ? allocationData : [1], // Placeholder if empty
+                backgroundColor: hasAssets ? typeColors : ['#e5e7eb'],
+                borderWidth: 0,
+                hoverOffset: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '75%',
+            plugins: {
+                legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 11, weight: 'bold' } } },
+                tooltip: {
+                    enabled: hasAssets,
+                    callbacks: {
+                        label: (ctx) => ' ' + ctx.parsed.toLocaleString('vi-VN') + ' ₫'
+                    }
+                }
+            }
+        }
+    });
+
+    // --- Spending Chart ---
+    const ctxS = document.getElementById('spendChart').getContext('2d');
+    if (charts.s) charts.s.destroy();
+
+    const cats = [...new Set(state.spending.map(s => s.cat))];
+    const catData = cats.map(c => state.spending.filter(s => s.cat === c).reduce((sum, s) => sum + s.amt, 0));
+
+    // Generate vibrant colors for spending categories
+    const spendingColors = [
+        '#8b5cf6', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#10b981'
+    ];
+
+    charts.s = new Chart(ctxS, {
+        type: 'doughnut',
+        data: {
+            labels: hasSpending ? cats : ['No Expenses'],
+            datasets: [{
+                data: hasSpending ? catData : [1],
+                backgroundColor: hasSpending ? spendingColors : ['#e5e7eb'],
+                borderWidth: 0,
+                hoverOffset: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '75%',
+            plugins: {
+                legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 11, weight: 'bold' } } },
+                tooltip: {
+                    enabled: hasSpending,
+                    callbacks: {
+                        label: (ctx) => ' ' + ctx.parsed.toLocaleString('vi-VN') + ' ₫'
+                    }
+                }
+            }
+        }
+    });
+}
