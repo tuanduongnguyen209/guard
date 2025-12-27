@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WealthGuard Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -182,10 +182,10 @@
 
         <div class="bg-black text-white p-6 rounded-[2rem]">
             <h3 class="font-bold mb-3 text-sm">Quick Spend</h3>
-            <input id="in-amt" type="number" placeholder="VND Amount..."
+            <input id="in-amt" type="number" placeholder="VND Amount..." aria-label="Amount in VND"
                 class="w-full bg-zinc-800 p-4 rounded-2xl mb-2 outline-none border border-zinc-700">
             <div class="flex gap-2">
-                <select id="in-cat"
+                <select id="in-cat" aria-label="Expense Category"
                     class="flex-1 bg-zinc-800 p-4 rounded-2xl text-sm outline-none border border-zinc-700">
                     <option>Food</option>
                     <option>Transport</option>
@@ -200,14 +200,24 @@
         </div>
     </main>
 
-    <main id="view-analytics" class="px-4 space-y-4 hidden">
+    <main id="view-analytics" class="px-4 space-y-4 hidden pb-24">
         <div class="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">Net Worth Growth (Last 14 Days)</h3>
-            <canvas id="historyChart" height="200"></canvas>
+            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Net Worth Growth (Last 14 Days)</h3>
+            <div class="relative h-[200px] w-full">
+                <canvas id="historyChart"></canvas>
+            </div>
         </div>
         <div class="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">Expense Breakdown</h3>
-            <canvas id="spendChart" height="200"></canvas>
+            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Asset Allocation</h3>
+            <div class="relative h-[200px] w-full flex justify-center">
+                <canvas id="allocationChart"></canvas>
+            </div>
+        </div>
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
+            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Expense Breakdown</h3>
+            <div class="relative h-[200px] w-full flex justify-center">
+                <canvas id="spendChart"></canvas>
+            </div>
         </div>
     </main>
 
@@ -215,7 +225,8 @@
         <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-4 max-h-[90vh] overflow-y-auto modal-content">
             <div class="flex justify-between items-center">
                 <h2 class="text-xl font-bold">Manage Assets</h2>
-                <button onclick="toggleModal(false)" class="text-gray-400 font-bold text-lg">✕</button>
+                <button onclick="toggleModal(false)" aria-label="Close Modal"
+                    class="text-gray-400 font-bold text-lg">✕</button>
             </div>
 
             <button onclick="addNewAsset()" class="w-full bg-gray-200 text-black p-4 rounded-2xl font-bold">+ Add New
@@ -228,12 +239,12 @@
         </div>
     </div>
 
-    <nav
-        class="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-full shadow-2xl flex justify-around z-40">
-        <button onclick="showView('home')" id="btn-home"
-            class="py-3 px-8 text-gray-400 font-bold active-tab">Home</button>
-        <button onclick="showView('analytics')" id="btn-analytics"
-            class="py-3 px-8 text-gray-400 font-bold">Analysis</button>
+    <nav class="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-full shadow-2xl flex justify-around z-40"
+        role="tablist">
+        <button onclick="showView('home')" id="btn-home" aria-selected="true" role="tab"
+            class="py-3 px-8 text-gray-400 font-bold active-tab transition-colors duration-300">Home</button>
+        <button onclick="showView('analytics')" id="btn-analytics" aria-selected="false" role="tab"
+            class="py-3 px-8 text-gray-400 font-bold transition-colors duration-300">Analysis</button>
     </nav>
 
     <script type="module">
@@ -362,6 +373,20 @@
                         { symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
                         { symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
                     ];
+                    // Add some default history/spending for better first impression
+                    const today = new Date();
+                    state.history = Array.from({ length: 7 }, (_, i) => {
+                        const d = new Date(today);
+                        d.setDate(d.getDate() - (6 - i));
+                        return {
+                            date: d.toLocaleDateString('vi-VN'),
+                            val: 5000000 + (Math.random() * 500000)
+                        };
+                    });
+                    state.spending = [
+                        { amt: 50000, cat: 'Food', date: today.toISOString().split('T')[0] },
+                        { amt: 100000, cat: 'Transport', date: today.toISOString().split('T')[0] }
+                    ];
                     saveToLocalStorage();
                     await syncPricesAndRender();
                 }
@@ -431,7 +456,7 @@
                         try {
                             const yahooSymbol = `${asset.symbol.toUpperCase()}.VN`;
                             const apiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`;
-                            
+
                             // Use CORS proxy to bypass restrictions
                             const proxyUrl = 'https://api.allorigins.win/raw?url=';
                             const fullUrl = proxyUrl + encodeURIComponent(apiUrl);
@@ -462,7 +487,7 @@
                             if (data && data.chart && data.chart.result && data.chart.result.length > 0) {
                                 const result = data.chart.result[0];
                                 const meta = result.meta;
-                                
+
                                 // Use regularMarketPrice for stable intraday price
                                 const priceVND = meta.regularMarketPrice || meta.chartPreviousClose || 0;
 
@@ -681,9 +706,18 @@
                 analyticsView.classList.add('view-transition');
             }
 
-            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active-tab'));
-            document.getElementById('btn-' + view).classList.add('active-tab');
-            if (view === 'analytics') renderCharts();
+            document.querySelectorAll('nav button').forEach(b => {
+                b.classList.remove('active-tab');
+                b.setAttribute('aria-selected', 'false');
+            });
+            const activeBtn = document.getElementById('btn-' + view);
+            activeBtn.classList.add('active-tab');
+            activeBtn.setAttribute('aria-selected', 'true');
+
+            if (view === 'analytics') {
+                // Small timeout to ensure DOM is ready and transition has started
+                setTimeout(renderCharts, 50);
+            }
         }
         window.showView = showView; // Expose to global scope
 
@@ -724,60 +758,148 @@
         }
 
         function renderCharts() {
+            // Check if there is data to render
+            const hasHistory = state.history && state.history.length > 0;
+            const hasSpending = state.spending && state.spending.length > 0;
+            const hasAssets = state.assets && state.assets.length > 0;
+
+            // --- History Chart ---
             const ctxH = document.getElementById('historyChart').getContext('2d');
             if (charts.h) charts.h.destroy();
+
+            // Create gradient
+            let gradient = ctxH.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.2)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+            const historyData = hasHistory ? state.history : [{ date: 'Today', val: state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0) }];
+
             charts.h = new Chart(ctxH, {
                 type: 'line',
                 data: {
-                    labels: state.history.map(h => h.date),
+                    labels: historyData.map(h => h.date),
                     datasets: [{
                         label: 'Net Worth',
-                        data: state.history.map(h => h.val),
+                        data: historyData.map(h => h.val),
                         borderColor: '#000',
-                        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                        borderWidth: 3,
+                        backgroundColor: gradient,
                         fill: true,
-                        tension: 0.4
+                        tension: 0.4,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#000',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
                     }]
                 },
                 options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
                     animation: {
                         duration: 1000,
-                        easing: 'easeInOutQuart'
+                        easing: 'easeOutQuart'
                     },
                     plugins: {
-                        legend: { display: false }
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(0,0,0,0.8)',
+                            padding: 12,
+                            titleFont: { size: 13 },
+                            bodyFont: { size: 13, weight: 'bold' },
+                            callbacks: {
+                                label: (ctx) => ' ' + ctx.parsed.y.toLocaleString('vi-VN') + ' ₫'
+                            }
+                        }
                     },
                     scales: {
+                        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
                         y: {
+                            border: { display: false },
+                            grid: { color: '#f3f4f6' },
                             ticks: {
-                                callback: v => v.toLocaleString('vi-VN') + ' ₫'
+                                callback: v => (v / 1000000).toFixed(1) + 'M',
+                                font: { size: 10 }
                             }
                         }
                     }
                 }
             });
 
-            const cats = [...new Set(state.spending.map(s => s.cat))];
-            const catData = cats.map(c => state.spending.filter(s => s.cat === c).reduce((sum, s) => sum + s.amt, 0));
-            const ctxS = document.getElementById('spendChart').getContext('2d');
-            if (charts.s) charts.s.destroy();
-            charts.s = new Chart(ctxS, {
+            // --- Asset Allocation Chart ---
+            const ctxA = document.getElementById('allocationChart').getContext('2d');
+            if (charts.a) charts.a.destroy();
+
+            const assetTypes = ['crypto', 'stock', 'cash', 'debt'];
+            const typeLabels = ['Crypto', 'Stocks', 'Cash', 'Debt'];
+            const typeColors = ['#f97316', '#2563eb', '#16a34a', '#dc2626']; // Orange, Blue, Green, Red
+
+            const allocationData = assetTypes.map(t =>
+                state.assets.filter(a => a.type === t).reduce((sum, a) => sum + Math.abs(a.qty * (a.price || 0)), 0)
+            );
+
+            charts.a = new Chart(ctxA, {
                 type: 'doughnut',
                 data: {
-                    labels: cats,
+                    labels: typeLabels,
                     datasets: [{
-                        data: catData,
-                        backgroundColor: ['#000', '#333', '#666', '#999', '#CCC', '#EEE']
+                        data: hasAssets ? allocationData : [1], // Placeholder if empty
+                        backgroundColor: hasAssets ? typeColors : ['#e5e7eb'],
+                        borderWidth: 0,
+                        hoverOffset: 10
                     }]
                 },
                 options: {
-                    animation: {
-                        duration: 1000,
-                        animateRotate: true,
-                        animateScale: true
-                    },
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
                     plugins: {
-                        legend: { position: 'right' }
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 11, weight: 'bold' } } },
+                        tooltip: {
+                            enabled: hasAssets,
+                            callbacks: {
+                                label: (ctx) => ' ' + ctx.parsed.toLocaleString('vi-VN') + ' ₫'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // --- Spending Chart ---
+            const ctxS = document.getElementById('spendChart').getContext('2d');
+            if (charts.s) charts.s.destroy();
+
+            const cats = [...new Set(state.spending.map(s => s.cat))];
+            const catData = cats.map(c => state.spending.filter(s => s.cat === c).reduce((sum, s) => sum + s.amt, 0));
+
+            // Generate vibrant colors for spending categories
+            const spendingColors = [
+                '#8b5cf6', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#10b981'
+            ];
+
+            charts.s = new Chart(ctxS, {
+                type: 'doughnut',
+                data: {
+                    labels: hasSpending ? cats : ['No Expenses'],
+                    datasets: [{
+                        data: hasSpending ? catData : [1],
+                        backgroundColor: hasSpending ? spendingColors : ['#e5e7eb'],
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 11, weight: 'bold' } } },
+                        tooltip: {
+                            enabled: hasSpending,
+                            callbacks: {
+                                label: (ctx) => ' ' + ctx.parsed.toLocaleString('vi-VN') + ' ₫'
+                            }
+                        }
                     }
                 }
             });
