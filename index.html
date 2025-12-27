@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WealthGuard Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase Modular SDK (v9+) via CDN -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+        // REPLACE WITH YOUR OWN FIREBASE CONFIG (from Firebase Console > Project Settings)
+        const firebaseConfig = {
+        apiKey: "AIzaSyCmBFrEt1lxzsikPM6c5qgJiy5hcLdmRas",
+        authDomain: "guard-d6c77.firebaseapp.com",
+        projectId: "guard-d6c77",
+        storageBucket: "guard-d6c77.firebasestorage.app",
+        messagingSenderId: "543378495814",
+        appId: "1:543378495814:web:504303c5b1f1368bd9ed47",
+        measurementId: "G-D47XRWQB1T"
+        };
+
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // User-specific data (anonymous UID for simplicity - in production use Firebase Auth)
+        const userId = 'default_user'; // Change to Firebase Auth UID for multi-user
+        const dataDoc = doc(db, 'wealthguard', userId);
+
+        window.wealthDb = { db, dataDoc, getDoc, setDoc, onSnapshot };
+    </script>
+    <style>
+        .active-tab {
+            border-bottom: 3px solid black;
+            color: black !important;
+            transition: all 0.3s ease;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        body {
+            transition: background-color 0.4s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .modal-bg {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            transition: opacity 0.3s ease;
+        }
+
+        /* Animation Keyframes */
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(100%);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -1000px 0;
+            }
+            100% {
+                background-position: 1000px 0;
+            }
+        }
+
+        /* Asset Card Animations */
+        .asset-card {
+            animation: fadeIn 0.4s ease forwards;
+            transition: all 0.3s ease;
+        }
+
+        .asset-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Modal Animations */
+        .modal-content {
+            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-closing .modal-content {
+            animation: fadeOut 0.3s ease forwards;
+        }
+
+        /* Button Animations */
+        button {
+            transition: all 0.2s ease;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button:hover:not(:disabled) {
+            filter: brightness(1.05);
+        }
+
+        /* Value Counter Animation */
+        .value-animate {
+            transition: all 0.5s ease;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Tab Transition */
+        .view-transition {
+            animation: fadeIn 0.3s ease;
+        }
+
+        /* Debt Card Styling */
+        .debt-card {
+            border: 2px solid #fee2e2 !important;
+            background: linear-gradient(135deg, #fff 0%, #fef2f2 100%) !important;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen pb-24">
+
+    <header class="p-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-xl font-black tracking-tighter">WEALTHGUARD</h1>
+            <p id="coach-msg" class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Discipline is
+                freedom.</p>
+        </div>
+        <button onclick="toggleModal(true)" class="bg-gray-200 p-2 rounded-full px-4 text-xs font-bold uppercase">Edit
+            Assets</button>
+    </header>
+
+    <main id="view-home" class="px-4 space-y-4">
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
+            <h2 class="text-xs font-bold text-gray-400 uppercase">Total Net Worth</h2>
+            <div id="total-val" class="text-4xl font-black mt-1">0 ₫</div>
+        </div>
+
+        <div id="asset-display-list" class="grid grid-cols-2 gap-3"></div>
+
+        <div class="bg-black text-white p-6 rounded-[2rem]">
+            <h3 class="font-bold mb-3 text-sm">Quick Spend</h3>
+            <input id="in-amt" type="number" placeholder="VND Amount..."
+                class="w-full bg-zinc-800 p-4 rounded-2xl mb-2 outline-none border border-zinc-700">
+            <div class="flex gap-2">
+                <select id="in-cat"
+                    class="flex-1 bg-zinc-800 p-4 rounded-2xl text-sm outline-none border border-zinc-700">
+                    <option>Food</option>
+                    <option>Transport</option>
+                    <option>Bills</option>
+                    <option>Investing</option>
+                    <option>Entertainment</option>
+                    <option>Other</option>
+                </select>
+                <button onclick="addSpend()"
+                    class="bg-white text-black px-8 rounded-2xl font-bold active:scale-95 transition-transform">Log</button>
+            </div>
+        </div>
+    </main>
+
+    <main id="view-analytics" class="px-4 space-y-4 hidden">
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
+            <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">Net Worth Growth (Last 14 Days)</h3>
+            <canvas id="historyChart" height="200"></canvas>
+        </div>
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
+            <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">Expense Breakdown</h3>
+            <canvas id="spendChart" height="200"></canvas>
+        </div>
+    </main>
+
+    <div id="asset-modal" class="fixed inset-0 modal-bg z-50 flex items-end hidden">
+        <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-4 max-h-[90vh] overflow-y-auto modal-content">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-bold">Manage Assets</h2>
+                <button onclick="toggleModal(false)" class="text-gray-400 font-bold text-lg">✕</button>
+            </div>
+
+            <button onclick="addNewAsset()" class="w-full bg-gray-200 text-black p-4 rounded-2xl font-bold">+ Add New
+                Asset</button>
+
+            <div id="editor-list" class="space-y-4"></div>
+
+            <button onclick="saveAndClose()" class="w-full bg-black text-white p-4 rounded-2xl font-bold mt-4">Save
+                Changes</button>
+        </div>
+    </div>
+
+    <nav
+        class="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-full shadow-2xl flex justify-around z-40">
+        <button onclick="showView('home')" id="btn-home"
+            class="py-3 px-8 text-gray-400 font-bold active-tab">Home</button>
+        <button onclick="showView('analytics')" id="btn-analytics"
+            class="py-3 px-8 text-gray-400 font-bold">Analysis</button>
+    </nav>
+
+    <script type="module">
+        // Access Firebase from window.wealthDb (initialized in the earlier module script)
+        const { db, dataDoc, getDoc, setDoc, onSnapshot } = window.wealthDb;
+
+        let state = {
+            assets: [],
+            spending: [],
+            history: [],
+            budget: 8000000
+        };
+
+        let charts = {};
+
+        // Listen for real-time updates from Firestore
+        onSnapshot(dataDoc, (docSnap) => {
+            if (docSnap.exists()) {
+                state = docSnap.data();
+                // Ensure defaults
+                state.assets = state.assets || [];
+                state.spending = state.spending || [];
+                state.history = state.history || [];
+                state.budget = state.budget || 8000000;
+            } else {
+                // First time - use defaults
+                state.assets = [
+                    { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
+                    { symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
+                    { symbol: 'CASH', name: 'Cash Savings', type: 'cash', qty: 5000000 }
+                ];
+                setDoc(dataDoc, state);
+            }
+            syncPricesAndRender();
+        });
+
+        async function syncPricesAndRender() {
+            // Fetch prices for crypto/stock/debt
+            for (let asset of state.assets) {
+                if (asset.type === 'cash') {
+                    asset.price = 1;
+                    continue;
+                }
+                if (asset.type === 'debt') {
+                    // Debt uses negative price value, don't fetch
+                    asset.price = asset.price || 0; // Keep the negative value
+                    continue;
+                }
+                try {
+                    if (asset.type === 'crypto') {
+                        const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${asset.symbol.toLowerCase()}&vs_currencies=vnd`);
+                        const data = await res.json();
+                        asset.price = data[asset.symbol.toLowerCase()]?.vnd || asset.price || 0;
+                    } else if (asset.type === 'stock') {
+                        // Fetch Vietnam stock prices from VNDIRECT API with CORS proxy
+                        try {
+                            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                            const apiUrl = `https://finfo-api.vndirect.com.vn/v4/stock_prices/${asset.symbol.toUpperCase()}`;
+                            const res = await fetch(proxyUrl + encodeURIComponent(apiUrl));
+                            const data = await res.json();
+                            
+                            // VNDIRECT API returns array of price data
+                            if (data && data.data && data.data.length > 0) {
+                                // Use closePrice (closing price) and multiply by 1000 to convert to VND
+                                asset.price = (data.data[0].closePrice || data.data[0].matchPrice || asset.price || 0) * 1000;
+                            } else {
+                                asset.price = asset.price || 0; // Keep last known
+                            }
+                        } catch (stockErr) {
+                            console.log('VN Stock price fetch error for ' + asset.symbol, stockErr);
+                            asset.price = asset.price || 0; // Keep last known
+                        }
+                    }
+                } catch (e) {
+                    console.log('Price fetch error for ' + asset.symbol, e);
+                }
+            }
+            render();
+            recordSnapshot();
+        }
+
+        setInterval(syncPricesAndRender, 60000); // Refresh prices every minute
+
+        function toggleModal(show) {
+            const m = document.getElementById('asset-modal');
+            if (!show) {
+                // Add closing animation
+                m.classList.add('modal-closing');
+                setTimeout(() => {
+                    m.classList.add('hidden');
+                    m.classList.remove('modal-closing');
+                }, 300);
+            } else {
+                m.classList.remove('hidden');
+                renderEditor();
+            }
+        }
+        window.toggleModal = toggleModal; // Expose to global scope
+
+        function addNewAsset() {
+            state.assets.push({ symbol: 'NEW', name: 'New Asset', type: 'crypto', qty: 0 });
+            renderEditor();
+        }
+        window.addNewAsset = addNewAsset; // Expose to global scope
+
+        function renderEditor() {
+            const container = document.getElementById('editor-list');
+            container.innerHTML = state.assets.map((a, i) => `
+                <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                    <div class="flex justify-between mb-2">
+                        <input type="text" placeholder="Symbol (e.g. BTC, VND)" onchange="updateAsset(${i}, 'symbol', this.value)" value="${a.symbol}" class="font-bold uppercase">
+                        <button onclick="removeAsset(${i})" class="text-red-500 text-xs">Remove</button>
+                    </div>
+                    <input type="text" placeholder="Name" onchange="updateAsset(${i}, 'name', this.value)" value="${a.name}" class="mb-2 w-full">
+                    <select onchange="updateAsset(${i}, 'type', this.value)" class="mb-2 w-full bg-white border p-2 rounded-lg">
+                        <option value="crypto" ${a.type === 'crypto' ? 'selected' : ''}>Crypto</option>
+                        <option value="stock" ${a.type === 'stock' ? 'selected' : ''}>VN Stock</option>
+                        <option value="cash" ${a.type === 'cash' ? 'selected' : ''}>Cash</option>
+                        <option value="debt" ${a.type === 'debt' ? 'selected' : ''}>Debt/Loan</option>
+                    </select>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-gray-400">${a.type === 'debt' ? 'Amount (will be negative)' : 'Quantity'}</label>
+                            <input type="number" step="any" onchange="updateAsset(${i}, 'qty', this.value)" value="${a.qty || 0}" class="w-full bg-white border p-2 rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-gray-400">${a.type === 'debt' ? 'Price (enter positive)' : 'Current Price (VND)'}</label>
+                            ${a.type === 'debt' ? 
+                                `<input type="number" step="any" onchange="updateAssetDebtPrice(${i}, this.value)" value="${Math.abs(a.price || 0)}" class="w-full bg-white border p-2 rounded-lg text-sm">` :
+                                `<input type="number" value="${Math.round(a.price || 0).toLocaleString()}" class="w-full bg-gray-200 border p-2 rounded-lg text-sm" disabled>`
+                            }
+                            ${a.type !== 'debt' ? `<button onclick="manualRefreshPrice(${i})" class="text-xs text-blue-600 mt-1">Refresh <span id="loading-${i}" class="spinner hidden"></span></button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateAsset(i, field, value) {
+            if (field === 'qty') value = parseFloat(value) || 0;
+            state.assets[i][field] = value;
+        }
+        window.updateAsset = updateAsset; // Expose to global scope
+
+        function updateAssetDebtPrice(i, value) {
+            // For debt, store as negative value
+            state.assets[i].price = -(Math.abs(parseFloat(value)) || 0);
+        }
+        window.updateAssetDebtPrice = updateAssetDebtPrice; // Expose to global scope
+
+        function removeAsset(i) {
+            state.assets.splice(i, 1);
+            renderEditor();
+        }
+        window.removeAsset = removeAsset; // Expose to global scope
+
+        async function manualRefreshPrice(i) {
+            // Show loading spinner
+            const spinner = document.getElementById(`loading-${i}`);
+            if (spinner) spinner.classList.remove('hidden');
+            
+            // Force refresh one asset
+            await syncPricesAndRender();
+            
+            // Hide loading spinner
+            if (spinner) spinner.classList.add('hidden');
+            
+            // Re-render editor to show updated price
+            renderEditor();
+        }
+        window.manualRefreshPrice = manualRefreshPrice; // Expose to global scope
+
+        async function saveAndClose() {
+            await setDoc(dataDoc, state);
+            toggleModal(false);
+        }
+        window.saveAndClose = saveAndClose; // Expose to global scope
+
+        function addSpend() {
+            const amt = parseFloat(document.getElementById('in-amt').value);
+            const cat = document.getElementById('in-cat').value;
+            if (!amt || amt <= 0) return;
+            state.spending.push({ amt, cat, date: new Date().toISOString().split('T')[0] });
+            document.getElementById('in-amt').value = '';
+            recordSnapshot();
+            render();
+            setDoc(dataDoc, state); // Firestore sync
+        }
+        window.addSpend = addSpend; // Expose to global scope
+
+        function recordSnapshot() {
+            const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
+            const today = new Date().toLocaleDateString('vi-VN');
+            const existing = state.history.find(h => h.date === today);
+            if (existing) existing.val = total;
+            else state.history.push({ date: today, val: total });
+            if (state.history.length > 14) state.history.shift();
+        }
+
+        function showView(view) {
+            const homeView = document.getElementById('view-home');
+            const analyticsView = document.getElementById('view-analytics');
+            
+            // Add fade out
+            if (view === 'home') {
+                analyticsView.classList.add('hidden');
+                homeView.classList.remove('hidden');
+                homeView.classList.add('view-transition');
+            } else {
+                homeView.classList.add('hidden');
+                analyticsView.classList.remove('hidden');
+                analyticsView.classList.add('view-transition');
+            }
+            
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active-tab'));
+            document.getElementById('btn-' + view).classList.add('active-tab');
+            if (view === 'analytics') renderCharts();
+        }
+        window.showView = showView; // Expose to global scope
+
+        function render() {
+            const total = state.assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0);
+            const totalEl = document.getElementById('total-val');
+            
+            // Animate value change
+            totalEl.classList.add('value-animate');
+            totalEl.innerText = Math.round(total).toLocaleString('vi-VN') + ' ₫';
+
+            document.getElementById('asset-display-list').innerHTML = state.assets.map((a, idx) => {
+                const value = a.qty * (a.price || 0);
+                const isDebt = a.type === 'debt';
+                const colorClass = isDebt ? 'text-red-600' : 
+                                   a.type === 'crypto' ? 'text-orange-500' : 
+                                   a.type === 'stock' ? 'text-blue-600' : 
+                                   'text-green-600';
+                
+                return `
+                <div class="asset-card bg-white p-4 rounded-3xl border border-gray-100 shadow-sm ${isDebt ? 'debt-card' : ''}" style="animation-delay: ${idx * 0.05}s">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                        ${isDebt ? '⚠️ ' : ''}${a.name} (${a.symbol})
+                    </p>
+                    <p class="font-bold ${colorClass}">
+                        ${Math.round(value).toLocaleString('vi-VN')} ₫
+                    </p>
+                    <p class="text-xs text-gray-500">${a.qty} × ${Math.round(Math.abs(a.price || 0)).toLocaleString('vi-VN')} ₫${isDebt ? ' (debt)' : ''}</p>
+                </div>
+            `}).join('');
+
+            const spentThisMonth = state.spending
+                .filter(s => s.date.startsWith(new Date().toISOString().slice(0, 7)))
+                .reduce((s, x) => s + x.amt, 0);
+            const ratio = spentThisMonth / state.budget;
+            document.body.style.backgroundColor = ratio > 0.8 ? "#fef2f2" : "#f8fafc";
+            document.getElementById('coach-msg').innerText = ratio > 0.8 ? "WARNING: SPENDING HIGH" : "Discipline is freedom.";
+        }
+
+        function renderCharts() {
+            const ctxH = document.getElementById('historyChart').getContext('2d');
+            if (charts.h) charts.h.destroy();
+            charts.h = new Chart(ctxH, {
+                type: 'line',
+                data: {
+                    labels: state.history.map(h => h.date),
+                    datasets: [{ 
+                        label: 'Net Worth', 
+                        data: state.history.map(h => h.val), 
+                        borderColor: '#000', 
+                        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                        fill: true,
+                        tension: 0.4 
+                    }]
+                },
+                options: { 
+                    animation: {
+                        duration: 1000,
+                        easing: 'easeInOutQuart'
+                    },
+                    plugins: { 
+                        legend: { display: false } 
+                    }, 
+                    scales: { 
+                        y: { 
+                            ticks: { 
+                                callback: v => v.toLocaleString('vi-VN') + ' ₫' 
+                            } 
+                        } 
+                    } 
+                }
+            });
+
+            const cats = [...new Set(state.spending.map(s => s.cat))];
+            const catData = cats.map(c => state.spending.filter(s => s.cat === c).reduce((sum, s) => sum + s.amt, 0));
+            const ctxS = document.getElementById('spendChart').getContext('2d');
+            if (charts.s) charts.s.destroy();
+            charts.s = new Chart(ctxS, {
+                type: 'doughnut',
+                data: {
+                    labels: cats,
+                    datasets: [{ 
+                        data: catData, 
+                        backgroundColor: ['#000', '#333', '#666', '#999', '#CCC', '#EEE'] 
+                    }]
+                },
+                options: { 
+                    animation: {
+                        duration: 1000,
+                        animateRotate: true,
+                        animateScale: true
+                    },
+                    plugins: { 
+                        legend: { position: 'right' } 
+                    } 
+                }
+            });
+        }
+
+        // Initial render will trigger after Firestore snapshot
+    </script>
+</body>
+
+</html>
