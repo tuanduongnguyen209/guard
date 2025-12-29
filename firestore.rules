@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow public read/write access to the wealthguard collection
+    // NOTE: This is suitable for a personal app. For production apps with
+    // multiple users, you should implement proper authentication and
+    // restrict access to: if request.auth != null && request.auth.uid == userId
+    match /wealthguard/{userId} {
+      allow read, write: if true;
+      
+      // Allow access to the spending subcollection
+      match /spending/{spendingId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
