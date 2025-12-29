@@ -10,17 +10,19 @@ export function useAssets() {
   const [history, setHistory] = useState([]);
   const [budget, setBudget] = useState(8000000);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   
   // Use a ref to access latest assets inside interval/sync logic without triggering re-renders
   const assetsRef = useRef(assets);
   useEffect(() => { assetsRef.current = assets; }, [assets]);
 
-  // Load data - Single Source of Truth (Firebase)
+  // Load data - Network First, Cache Fallback
   const loadData = useCallback(async () => {
     setLoading(true);
     let loadedAssets = [];
     let loadedHistory = [];
     let loadedBudget = 8000000;
+    let isOffline = false;
 
     try {
       const docSnap = await getDoc(DATA_DOC_REF);
@@ -36,9 +38,14 @@ export function useAssets() {
         setAssets(loadedAssets);
         setHistory(loadedHistory);
         setBudget(loadedBudget);
+        
+        // Success! Update Cache
+        localStorage.setItem('wealthguard_firebase_cache', JSON.stringify({
+           assets: loadedAssets, history: loadedHistory, budget: loadedBudget
+        }));
       } else {
-        // Defaults ONLY if user has no data in Firebase yet (first time user, but online)
-        console.log('✨ New User detected (Firebase empty). Creating defaults...');
+        // Defaults (New User)
+        console.log('✨ New User (Firebase). Creating defaults...');
         loadedAssets = [
           { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
           { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
@@ -49,11 +56,26 @@ export function useAssets() {
       }
     } catch (e) {
       console.error('Firebase load error', e);
-      alert('Failed to load assets from cloud. Please check connection.');
+      isOffline = true;
+      
+      // Fallback to Cache
+      const cached = localStorage.getItem('wealthguard_firebase_cache');
+      if (cached) {
+          console.warn('⚠️ Network failed. Loading from local cache.');
+          const parsed = JSON.parse(cached);
+          loadedAssets = parsed.assets || [];
+          setAssets(loadedAssets);
+          setHistory(parsed.history || []);
+          setBudget(parsed.budget || 8000000);
+      } else {
+        // Total Failure
+        alert('CRITICAL: Cannot connect to Firebase and no local backup found. Check internet/CORS.');
+      }
     }
     
     setLoading(false);
-    return loadedAssets;
+    setIsOffline(isOffline);
+    return { assets: loadedAssets, isOffline };
   }, []);
 
   // Sync Prices
@@ -140,6 +162,7 @@ export function useAssets() {
     assets,
     history,
     loading,
+    isOffline,
     saveAssets,
     refreshPrices: () => syncPrices(),
     totalNetWorth: assets.reduce((sum, a) => sum + (a.qty * (a.price || 0)), 0)

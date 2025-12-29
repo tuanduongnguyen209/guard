@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: "AIzaSyCmBFrEt1lxzsikPM6c5qgJiy5hcLdmRas",
@@ -12,6 +12,10 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// Force long polling to bypass network restrictions (common cause of 'offline' error in some envs)
+export const db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+});
+// export const db = getFirestore(app);
 // Hardcoded user for this MVP/Personal tool
 export const userId = 'default_user'; 

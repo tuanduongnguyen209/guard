@@ -14,7 +14,7 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { assets, history, saveAssets, totalNetWorth, refreshPrices } = useAssets();
+  const { assets, history, saveAssets, totalNetWorth, refreshPrices, isOffline } = useAssets();
   const { spending, filter, setFilter, addSpending, deleteSpending } = useSpending();
 
   // Background color logic based on budget/spending ratio
@@ -115,6 +115,12 @@ function App() {
           <Edit2 size={12} /> Assets
         </button>
       </header>
+
+      {isOffline && (
+        <div className="mx-4 bg-red-500 text-white p-3 rounded-xl mb-4 text-center text-xs font-bold shadow-lg animate-pulse">
+          ⚠️ OFFLINE / SYNC ERROR: Data is Read-Only or Cached. <br /> Check connection or valid Firebase API Key.
+        </div>
+      )}
 
       <main className="px-4">
         {view === 'home' && (
