@@ -1,122 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WealthGuard Pro</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WealthGuard Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 </head>
 
-<body class="bg-slate-50 min-h-screen pb-24">
-
-    <header class="p-6 flex justify-between items-center">
-        <div>
-            <h1 class="text-xl font-black tracking-tighter">WEALTHGUARD</h1>
-            <p id="coach-msg" class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Discipline is
-                freedom.</p>
-        </div>
-        <button onclick="toggleModal(true)" class="bg-gray-200 p-2 rounded-full px-4 text-xs font-bold uppercase">Edit
-            Assets</button>
-    </header>
-
-    <main id="view-home" class="px-4 space-y-4">
-        <div class="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
-            <h2 class="text-xs font-bold text-gray-400 uppercase">Total Net Worth</h2>
-            <div id="total-val" class="text-4xl font-black mt-1">0 ₫</div>
-        </div>
-
-        <div id="asset-display-list" class="grid grid-cols-2 gap-3"></div>
-    </main>
-
-    <main id="view-spending" class="px-4 space-y-4 hidden pb-24">
-        <div class="bg-black text-white p-6 rounded-[2rem]">
-            <h3 class="font-bold mb-3 text-sm">Log New Expense</h3>
-            <input id="in-amt" type="number" placeholder="VND Amount..." aria-label="Amount in VND"
-                class="w-full bg-zinc-800 p-4 rounded-2xl mb-2 outline-none border border-zinc-700 text-white placeholder-zinc-500">
-            <div class="flex gap-2">
-                <select id="in-cat" aria-label="Expense Category"
-                    class="flex-1 bg-zinc-800 p-4 rounded-2xl text-sm outline-none border border-zinc-700 text-white cursor-pointer">
-                    <option>Food</option>
-                    <option>Transport</option>
-                    <option>Bills</option>
-                    <option>Investing</option>
-                    <option>Entertainment</option>
-                    <option>Other</option>
-                </select>
-                <button onclick="addSpend()"
-                    class="bg-white text-black px-8 rounded-2xl font-bold active:scale-95 transition-transform hover:bg-gray-100">Log</button>
-            </div>
-        </div>
-
-        <div>
-            <div class="flex justify-between items-center mb-3">
-                <h3 class="font-bold text-sm ml-2">Recent Spending</h3>
-                <select id="time-range-filter" onchange="changeTimeRange(this.value)"
-                    class="text-xs bg-white border border-gray-200 rounded-lg p-2 font-bold outline-none">
-                    <option value="this_month">This Month</option>
-                    <option value="last_month">Last Month</option>
-                    <option value="last_3_months">Last 3 Months</option>
-                    <option value="ytd">Year to Date</option>
-                    <option value="all">All Time</option>
-                </select>
-            </div>
-            <div id="spending-history-list" class="space-y-2"></div>
-        </div>
-    </main>
-
-    <main id="view-analytics" class="px-4 space-y-4 hidden pb-24">
-        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Net Worth Growth (Last 14 Days)</h3>
-            <div class="relative h-[200px] w-full">
-                <canvas id="historyChart"></canvas>
-            </div>
-        </div>
-        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Asset Allocation</h3>
-            <div class="relative h-[200px] w-full flex justify-center">
-                <canvas id="allocationChart"></canvas>
-            </div>
-        </div>
-        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 class="text-xs font-bold text-gray-500 uppercase mb-4">Expense Breakdown</h3>
-            <div class="relative h-[200px] w-full flex justify-center">
-                <canvas id="spendChart"></canvas>
-            </div>
-        </div>
-    </main>
-
-    <div id="asset-modal" class="fixed inset-0 modal-bg z-50 flex items-end hidden">
-        <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-4 max-h-[90vh] overflow-y-auto modal-content">
-            <div class="flex justify-between items-center">
-                <h2 class="text-xl font-bold">Manage Assets</h2>
-                <button onclick="toggleModal(false)" aria-label="Close Modal"
-                    class="text-gray-400 font-bold text-lg">✕</button>
-            </div>
-
-            <button onclick="addNewAsset()" class="w-full bg-gray-200 text-black p-4 rounded-2xl font-bold">+ Add New
-                Asset</button>
-
-            <div id="editor-list" class="space-y-4"></div>
-
-            <button onclick="saveAndClose()" class="w-full bg-black text-white p-4 rounded-2xl font-bold mt-4">Save
-                Changes</button>
-        </div>
-    </div>
-
-    <nav class="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-md border border-gray-100 p-2 rounded-full shadow-2xl flex justify-between px-2 z-40"
-        role="tablist">
-        <button onclick="showView('home')" id="btn-home" aria-selected="true" role="tab"
-            class="py-3 px-6 text-gray-400 font-bold active-tab transition-colors duration-300 text-xs uppercase tracking-wider">Home</button>
-        <button onclick="showView('spending')" id="btn-spending" aria-selected="false" role="tab"
-            class="py-3 px-6 text-gray-400 font-bold transition-colors duration-300 text-xs uppercase tracking-wider">Spend</button>
-        <button onclick="showView('analytics')" id="btn-analytics" aria-selected="false" role="tab"
-            class="py-3 px-6 text-gray-400 font-bold transition-colors duration-300 text-xs uppercase tracking-wider">Data</button>
-    </nav>
-
-    <script type="module" src="app.js"></script>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 
 </html>
