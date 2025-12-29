@@ -1,9 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CATEGORIES, CATEGORY_ICONS, formatCurrency } from '../lib/utils';
 import { Filter, Trash2, ArrowRightLeft } from 'lucide-react';
 
 export function SpendingView({ spending, filter, setFilter, onAdd, onDelete, assets = [] }) {
     const [type, setType] = useState('expense');
+
+    const [selectedAssetId, setSelectedAssetId] = useState('');
+    const [isInitialized, setIsInitialized] = useState(false);
+
+    useEffect(() => {
+        if (!isInitialized && assets.length > 0) {
+            const defaultAsset = assets.find(a => a.type === 'cash');
+            if (defaultAsset) {
+                setSelectedAssetId(defaultAsset.id);
+            }
+            setIsInitialized(true);
+        }
+    }, [assets, isInitialized]);
 
     // Sort assets to put Cash/Bank type first if possible, or just default order
     // Filter out assets that might not be spendable if we wanted, but let's keep all.
@@ -68,7 +81,8 @@ export function SpendingView({ spending, filter, setFilter, onAdd, onDelete, ass
                         <select
                             name="assetId"
                             className="bg-transparent text-white outline-none w-full cursor-pointer appearance-none font-bold"
-                            defaultValue=""
+                            value={selectedAssetId}
+                            onChange={(e) => setSelectedAssetId(e.target.value)}
                         >
                             <option value="" className="text-black">No Linked Asset</option>
                             {assets.filter(a => a.type === 'cash').map(a => (
