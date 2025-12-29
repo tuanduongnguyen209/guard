@@ -6,14 +6,7 @@ import { startOfMonth, endOfMonth, subMonths, startOfYear, format } from 'date-f
 const SPENDING_COL_REF = collection(db, 'wealthguard', userId, 'spending');
 
 export function useSpending() {
-  /* Local Storage Key Helper */
-  const getCacheKey = (range) => `wealthguard_spending_${range}`;
-
-  const [spending, setSpending] = useState(() => {
-    // Try to load 'this_month' cache for immediate display if that's the default
-    const cached = localStorage.getItem(getCacheKey('this_month'));
-    return cached ? JSON.parse(cached) : [];
-  });
+  const [spending, setSpending] = useState([]);
   const [filter, setFilterState] = useState('this_month'); // Renamed to avoid confusion with setFilter export
   const [loading, setLoading] = useState(false);
   
@@ -48,11 +41,7 @@ export function useSpending() {
     setLoading(true);
     setFilterState(rangeType);
     
-    // Try load from cache first for this range
-    const cached = localStorage.getItem(getCacheKey(rangeType));
-    if (cached) {
-        setSpending(JSON.parse(cached));
-    }
+    // REMOVED LocalStorage check
 
     const { start, end } = getRange(rangeType);
     const startStr = format(start, 'yyyy-MM-dd');
@@ -70,10 +59,11 @@ export function useSpending() {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
         setSpending(data);
-        localStorage.setItem(getCacheKey(rangeType), JSON.stringify(data));
+        // REMOVED LocalStorage update
     } catch (e) {
         console.error('Failed to load spending', e);
-        // If fetch fails, we at least have the cached data (if any)
+        // User requested single source of truth: if fail, show empty/error
+        alert("Failed to load transactions.");
     }
     setLoading(false);
   }, []);
@@ -91,52 +81,18 @@ export function useSpending() {
         createdAt: new Date().toISOString()
     };
     
-    // Optimistic Update
-    // Check if new item falls within current filter range
-    const { start, end } = getRange(filterRef.current);
-    const startStr = format(start, 'yyyy-MM-dd');
-    const endStr = format(end, 'yyyy-MM-dd');
-    
-    // Add temporary item to UI immediately if it fits range
-    const tempId = 'temp-' + Date.now();
-    let addedToUi = false;
-    
-    if (dateStr >= startStr && dateStr <= endStr) {
-        addedToUi = true;
-        setSpending(prev => {
-           const newState = [{ id: tempId, ...newSpend }, ...prev];
-           // Update cache immediately
-           localStorage.setItem(getCacheKey(filterRef.current), JSON.stringify(newState));
-           return newState;
-        });
-    }
+    // REMOVED Optimistic Update & tempId logic
 
     try {
         const docRef = await addDoc(SPENDING_COL_REF, newSpend);
         
-        if (addedToUi) {
-            // Update the temp item with real ID
-            setSpending(prev => {
-                const newState = prev.map(item => 
-                    item.id === tempId ? { ...item, id: docRef.id } : item
-                );
-                localStorage.setItem(getCacheKey(filterRef.current), JSON.stringify(newState));
-                return newState;
-            });
-        }
+        // Single Source of Truth: We can either re-fetch or append strictly AFTER success.
+        // Appending after success is safe and faster than full re-fetch.
+        setSpending(prev => [{ id: docRef.id, ...newSpend }, ...prev]);
         return true;
     } catch (e) {
         console.error('Add spending failed', e);
-        alert("Error saving transaction to cloud! Check internet connection.");
-        
-        // Rollback on failure
-        if (addedToUi) {
-            setSpending(prev => {
-                const newState = prev.filter(item => item.id !== tempId);
-                localStorage.setItem(getCacheKey(filterRef.current), JSON.stringify(newState));
-                return newState;
-            });
-        }
+        alert("Error saving transaction to cloud!");
         return false;
     }
   };
@@ -154,30 +110,16 @@ export function useSpending() {
     deleteSpending: async (id) => {
         if (!id) return;
         
-        // Optimistic Delete
-        const { start, end } = getRange(filterRef.current);
-        // Find item to revert if needed
-        const itemToDelete = spending.find(s => s.id === id);
-        
-        setSpending(prev => {
-            const newState = prev.filter(s => s.id !== id);
-            localStorage.setItem(getCacheKey(filterRef.current), JSON.stringify(newState));
-            return newState;
-        });
+        // REMOVED Optimistic Delete
 
         try {
             await deleteDoc(doc(SPENDING_COL_REF, id));
+            // Update UI only after success
+            setSpending(prev => prev.filter(s => s.id !== id));
         } catch (e) {
             console.error('Delete failed', e);
             alert("Failed to delete expense");
-            // Revert
-            if (itemToDelete) {
-                setSpending(prev => {
-                    const newState = [...prev, itemToDelete].sort((a, b) => new Date(b.date) - new Date(a.date));
-                    localStorage.setItem(getCacheKey(filterRef.current), JSON.stringify(newState));
-                    return newState;
-                });
-            }
+            // No revert needed because we didn't change state
         }
     }
   };

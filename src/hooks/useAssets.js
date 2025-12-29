@@ -15,30 +15,13 @@ export function useAssets() {
   const assetsRef = useRef(assets);
   useEffect(() => { assetsRef.current = assets; }, [assets]);
 
-  // Load data - Stable
+  // Load data - Single Source of Truth (Firebase)
   const loadData = useCallback(async () => {
     setLoading(true);
     let loadedAssets = [];
     let loadedHistory = [];
     let loadedBudget = 8000000;
 
-    // 1. LocalStorage
-    try {
-      const localData = localStorage.getItem('wealthguard_state_v2');
-      if (localData) {
-        const parsed = JSON.parse(localData);
-        loadedAssets = parsed.assets || [];
-        loadedHistory = parsed.history || [];
-        loadedBudget = parsed.budget || 8000000;
-        setAssets(loadedAssets);
-        setHistory(loadedHistory);
-        setBudget(loadedBudget);
-      }
-    } catch (e) {
-      console.error('Local load error', e);
-    }
-
-    // 2. Firebase
     try {
       const docSnap = await getDoc(DATA_DOC_REF);
       if (docSnap.exists()) {
@@ -53,15 +36,9 @@ export function useAssets() {
         setAssets(loadedAssets);
         setHistory(loadedHistory);
         setBudget(loadedBudget);
-        
-        // Update local
-        localStorage.setItem('wealthguard_state_v2', JSON.stringify({
-          assets: loadedAssets,
-          history: loadedHistory,
-          budget: loadedBudget
-        }));
-      } else if (loadedAssets.length === 0) {
-        // Defaults
+      } else {
+        // Defaults ONLY if user has no data in Firebase yet (first time user, but online)
+        console.log('✨ New User detected (Firebase empty). Creating defaults...');
         loadedAssets = [
           { id: generateId(), symbol: 'BTC', name: 'Bitcoin', type: 'crypto', qty: 0.01 },
           { id: generateId(), symbol: 'VND', name: 'VNDIRECT Stock', type: 'stock', qty: 100 },
@@ -72,19 +49,19 @@ export function useAssets() {
       }
     } catch (e) {
       console.error('Firebase load error', e);
+      alert('Failed to load assets from cloud. Please check connection.');
     }
     
     setLoading(false);
-    return loadedAssets; // Return for chaining
+    return loadedAssets;
   }, []);
 
-  // Sync Prices - Stable (no dependencies on state)
+  // Sync Prices
   const syncPrices = useCallback(async (currentAssets) => {
     const assetsToSync = currentAssets || assetsRef.current;
     if (!assetsToSync || assetsToSync.length === 0) return;
 
     console.log('🔄 Syncing prices...');
-    // Create deep copy to avoid mutating ref directly if passed from ref
     const newAssets = assetsToSync.map(a => ({...a})); 
     let changed = false;
 
@@ -133,23 +110,11 @@ export function useAssets() {
 
     if (changed) {
       setAssets(newAssets);
-      // Cache prices to local storage
-      try {
-        const localData = localStorage.getItem('wealthguard_state_v2');
-        const parsed = localData ? JSON.parse(localData) : {};
-        parsed.assets = newAssets;
-        // Preserve other keys if they exist, or default them if creating fresh (though we expect data to exist)
-        if (!parsed.history) parsed.history = [];
-        if (!parsed.budget) parsed.budget = 8000000;
-        
-        localStorage.setItem('wealthguard_state_v2', JSON.stringify(parsed));
-      } catch (e) {
-        console.error('Cache update error', e);
-      }
+      // Removed LocalStorage update
     }
   }, []);
 
-  // Initial Load - Just load data, do not auto-sync prices
+  // Initial Load
   useEffect(() => {
     loadData();
   }, [loadData]); 
@@ -157,16 +122,19 @@ export function useAssets() {
   // Save changes
   const saveAssets = async (newAssets) => {
     setAssets(newAssets);
+    // Removed LocalStorage update
     const toSave = { assets: newAssets, history, budget };
-    localStorage.setItem('wealthguard_state_v2', JSON.stringify(toSave));
     try {
       await setDoc(DATA_DOC_REF, toSave, { merge: true });
     } catch (e) {
       console.error('Save failed', e);
+      alert('Failed to save to cloud!');
     }
-    // Refresh prices for new assets
-    syncPrices(newAssets);
+    refreshPrices(newAssets); // Call local helper or syncPrices directly if refactored
   };
+
+  // Helper just to keep the exposed API clean
+  const refreshPrices = (assets) => syncPrices(assets);
 
   return {
     assets,

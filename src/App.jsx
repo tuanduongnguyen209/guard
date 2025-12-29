@@ -41,6 +41,7 @@ function App() {
     // 2. Update Asset Balance if source selected
     if (assetId) {
       const assetIndex = assets.findIndex(a => a.id === assetId);
+
       if (assetIndex > -1) {
         const newAssets = [...assets];
         const asset = { ...newAssets[assetIndex] };
