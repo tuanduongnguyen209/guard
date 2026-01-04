@@ -6,18 +6,30 @@
   :root {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(255, 255, 255, 0.3);
   }
   
   body {
     @apply bg-slate-50 min-h-screen text-slate-900;
-    transition: background-color 0.4s ease;
+    transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Improved focus states */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-offset-2 ring-blue-500;
   }
 }
 
 @layer utilities {
   .modal-bg {
     background-color: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(8px);
     transition: opacity 0.3s ease;
   }
 
@@ -32,5 +44,47 @@
   .no-scrollbar {
     -ms-overflow-style: none; 
     scrollbar-width: none; 
+  }
+
+  /* Glassmorphism card */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+  }
+
+  /* iOS-like spring animation on tap */
+  .tap-spring {
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .tap-spring:active {
+    transform: scale(0.97);
+  }
+
+  /* Staggered animation for list items */
+  .stagger-item {
+    animation: slideInStagger 0.4s ease-out forwards;
+    opacity: 0;
+  }
+  
+  @keyframes slideInStagger {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r;
+  }
+
+  /* Subtle shadow */
+  .shadow-soft {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
   }
 }

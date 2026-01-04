@@ -1,8 +1,23 @@
 import { useState, useEffect } from 'react';
 import { CATEGORIES, CATEGORY_ICONS, formatCurrency } from '../lib/utils';
 import { Filter, Trash2, ArrowRightLeft } from 'lucide-react';
+import { BudgetStats } from './BudgetStats';
 
-export function SpendingView({ spending, filter, setFilter, onAdd, onDelete, assets = [] }) {
+export function SpendingView({
+    spending,
+    filter,
+    setFilter,
+    onAdd,
+    onDelete,
+    assets = [],
+    budget = 5000000,
+    totalSpent = 0,
+    avgPerDay = 0,
+    estimatedMonthly = 0,
+    daysInMonth = 31,
+    daysElapsed = 1,
+    budgetStatus = 'good'
+}) {
     const [type, setType] = useState('expense');
 
     const [selectedAssetId, setSelectedAssetId] = useState('');
@@ -38,6 +53,15 @@ export function SpendingView({ spending, filter, setFilter, onAdd, onDelete, ass
 
     return (
         <div className="space-y-4 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Budget Stats Card */}
+            <BudgetStats
+                totalSpent={totalSpent}
+                avgPerDay={avgPerDay}
+                estimatedMonthly={estimatedMonthly}
+                budget={budget}
+                daysInMonth={daysInMonth}
+                daysElapsed={daysElapsed}
+            />
             <div className={`text-white p-6 rounded-[2rem] shadow-xl transition-colors duration-500 ${type === 'expense' ? 'bg-black' : 'bg-emerald-900'}`}>
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="font-bold text-sm">

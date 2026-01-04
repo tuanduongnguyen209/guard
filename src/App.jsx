@@ -18,20 +18,38 @@ function App() {
   const { spending, filter, setFilter, addSpending, deleteSpending } = useSpending();
 
   // Background color logic based on budget/spending ratio
-  // Standard budget is 8M VND
-  const budget = 8000000;
-  const spentThisMonth = spending
-    .filter(s => s.date.startsWith(new Date().toISOString().slice(0, 7)))
-    .reduce((s, x) => s + x.amt, 0);
-  const ratio = spentThisMonth / budget;
+  // Updated budget to 5M VND as per user request
+  const budget = 5000000;
+
+  // Get current date info
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const daysElapsed = now.getDate();
+
+  // Calculate spending metrics
+  const currentMonthPrefix = now.toISOString().slice(0, 7);
+  const monthlySpending = spending.filter(s =>
+    s.date.startsWith(currentMonthPrefix) && s.type !== 'income'
+  );
+  const totalSpentThisMonth = monthlySpending.reduce((s, x) => s + x.amt, 0);
+  const avgPerDay = daysElapsed > 0 ? totalSpentThisMonth / daysElapsed : 0;
+  const estimatedMonthly = avgPerDay * daysInMonth;
+
+  // Determine budget status for theming
+  const estimatedRatio = estimatedMonthly / budget;
+  const budgetStatus = estimatedRatio > 1 ? 'danger' : estimatedRatio >= 0.7 ? 'warning' : 'good';
 
   useEffect(() => {
-    if (ratio > 0.8) {
-      document.body.style.backgroundColor = '#fef2f2';
+    if (budgetStatus === 'danger') {
+      document.body.style.backgroundColor = '#fef2f2'; // Light red
+    } else if (budgetStatus === 'warning') {
+      document.body.style.backgroundColor = '#fffbeb'; // Light amber
     } else {
-      document.body.style.backgroundColor = '#f8fafc';
+      document.body.style.backgroundColor = '#f0fdf4'; // Light green
     }
-  }, [ratio]);
+  }, [budgetStatus]);
 
   const handleAddTransaction = async (amt, cat, details, type, assetId) => {
     // 1. Log the transaction
@@ -104,8 +122,8 @@ function App() {
       <header className="p-6 flex justify-between items-center animate-in slide-in-from-top-4 duration-500">
         <div>
           <h1 className="text-xl font-black tracking-tighter">WEALTHGUARD</h1>
-          <p className={`text-[10px] uppercase font-bold tracking-widest transition-colors ${ratio > 0.8 ? 'text-red-500' : 'text-gray-500'}`}>
-            {ratio > 0.8 ? "WARNING: SPENDING HIGH" : "Discipline is freedom."}
+          <p className={`text-[10px] uppercase font-bold tracking-widest transition-colors ${budgetStatus === 'danger' ? 'text-red-500' : budgetStatus === 'warning' ? 'text-amber-500' : 'text-emerald-500'}`}>
+            {budgetStatus === 'danger' ? "⚠️ SPENDING EXCEEDS BUDGET" : budgetStatus === 'warning' ? "⚡ APPROACHING LIMIT" : "✨ ON TRACK"}
           </p>
         </div>
         <button
@@ -151,6 +169,13 @@ function App() {
             onAdd={handleAddTransaction}
             onDelete={handleDeleteTransaction}
             assets={assets}
+            budget={budget}
+            totalSpent={totalSpentThisMonth}
+            avgPerDay={avgPerDay}
+            estimatedMonthly={estimatedMonthly}
+            daysInMonth={daysInMonth}
+            daysElapsed={daysElapsed}
+            budgetStatus={budgetStatus}
           />
         )}
 
