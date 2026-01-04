@@ -95,7 +95,7 @@ export function SpendingView({
                         name="details"
                         type="text"
                         placeholder="Details (optional)..."
-                        className="w-full bg-white/10 p-4 rounded-2xl mb-3 outline-none border border-white/10 text-white placeholder-white/40 focus:border-white/50 transition-colors text-sm"
+                        className="w-full bg-white/10 p-4 rounded-2xl mb-3 outline-none border border-white/10 text-white placeholder-white/40 focus:border-white/50 transition-colors text-base"
                     />
 
                     <div className="w-full bg-white/10 p-4 rounded-2xl mb-3 text-sm flex flex-col gap-2 border border-white/10">
